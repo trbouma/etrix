@@ -21,64 +21,76 @@ This creates friction for any record that must function like a thing that can be
 ## Proposal
 
 ETRix introduces a simple model for records that are:
-Durable — persist independently of any single system
-Portable — transferable without loss of meaning or authority
-Verifiable — independently provable through cryptographic control
-Composable — usable across applications, jurisdictions, and infrastructures
+
+* Durable — persist independently of any single system
+* Portable — transferable without loss of meaning or authority
+* Verifiable — independently provable through cryptographic control
+* Composable — usable across applications, jurisdictions, and infrastructures
+
 ETRix does not replace legal or institutional frameworks. It provides a technical substrate upon which they can operate more directly and with less dependency.
 
 ## Core Model
 
 ETRix reduces the system to three primitives:
-Objects (Records) — the thing that carries meaning and authority
-Controllers (Keys) — the entity exercising exclusive control
-Events (Actions) — transfers, endorsements, and attestations
+
+* Objects (Records) — the thing that carries meaning and authority
+* Controllers (Keys) — the entity exercising exclusive control
+* Events (Actions) — transfers, endorsements, and attestations
+
 From these, ETRix enables three fundamental operations:
-Transfer — movement of control from one controller to another
-Endorsement — assignment of meaning, recognition, or delegation
-Enforcement — recognition of control with binding effect
+* Transfer — movement of control from one controller to another
+* Endorsement — assignment of meaning, recognition, or delegation
+* Enforcement — recognition of control with binding effect
+
 Together, these form a minimal fabric where:
 control persists, records travel, and meaning accumulates
 
 ## Design Principles
 
 Control over ownership — ownership is derived; control is observable
-Independence by design — no reliance on centralized registries or authorities
-Cryptographic verifiability — proofs are portable and machine-checkable
-Protocol simplicity — minimal primitives, maximal composability
-Interoperability — compatible with existing legal and technical frameworks
+
+* Independence by design — no reliance on centralized registries or authorities
+* Cryptographic verifiability — proofs are portable and machine-checkable
+* Protocol simplicity — minimal primitives, maximal composability
+* Interoperability — compatible with existing legal and technical frameworks
 
 ## Scope
 The ETRix project will deliver:
-A reference specification for transferable records
-A canonical data model for objects, controllers, and events
-Open APIs and SDKs for creating and transferring records
+
+* A reference specification for transferable records
+* A canonical data model for objects, controllers, and events
+* Open APIs and SDKs for creating and transferring records
+
 Reference implementations (e.g., Python, TypeScript)
+
 Integration patterns for systems such as decentralized networks and traditional registries
 
 ## Use Cases
 
-Electronic bills of lading and trade documents
-Warehouse receipts and inventory claims
-Promissory notes and financial instruments
-Digital certificates and credentials with transfer semantics
-Cross-border record portability and verification
+* Electronic bills of lading and trade documents
+* Warehouse receipts and inventory claims
+* Promissory notes and financial instruments
+* Digital certificates and credentials with transfer semantics
+* Cross-border record portability and verification
 
 ## Why Open Source
-Transferable records require shared understanding and independent verification.
- An open source approach ensures:
-Transparency of rules and behavior
-Broad interoperability across ecosystems
-Avoidance of vendor lock-in
-Community-driven evolution
+Transferable records require shared understanding and independent verification. An open source approach ensures:
+
+* Transparency of rules and behavior
+* Broad interoperability across ecosystems
+* Avoidance of vendor lock-in
+* Community-driven evolution
 
 ## Vision
 ETRix establishes a foundation where:
-Records are not confined to systems
-Control is durable and transferable
-Authority can be exercised and verified anywhere
+
+
+* Records are not confined to systems
+* Control is durable and transferable
+* Authority can be exercised and verified anywhere
+
 A world where:
-records stand on their own, and control moves with them
+* records stand on their own, and control moves with them
 
 ## Nostr Implementation (Initial)
 
@@ -89,10 +101,11 @@ Nostr provides a simple model of signed events + relay distribution + independen
 ## Get Involved
 ETRix is an open invitation to developers, legal experts, standards bodies, and institutions to collaborate on a shared layer for transferable records.
 Contributions are welcome across:
-Specification design
-Reference implementations
-Legal and regulatory alignment
-Real-world pilots and integrations
+
+* Specification design
+* Reference implementations
+* Legal and regulatory alignment
+* Real-world pilots and integrations
 
 
 ETRix — Durable Control. Portable Records.
