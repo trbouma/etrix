@@ -100,6 +100,24 @@ ETRix includes an initial implementation on Nostr to demonstrate durable control
 
 Nostr provides a simple model of signed events + relay distribution + independent verification. ETRix builds on this by defining how those events represent records, control, and transfer.
 
+## CLI Example
+
+Once Poetry dependencies are installed, you can publish a probe event using this repository's own [README.md](/Users/trbouma/projects/etrix/README.md) as the source file:
+
+```bash
+shasum -a 256 ./README.md
+```
+
+That prints the SHA-256 digest for `README.md` locally so you can inspect or compare it before publishing.
+
+```bash
+poetry run etrix publish-probe \
+  --relay wss://relay.getsafebox.app/ \
+  --digest-file ./README.md
+```
+
+This hashes `README.md` with SHA-256, uses that digest for both the `d` and `o` tags, publishes the event, and then queries the relay for the matching record.
+
 ## Get Involved
 ETRix is an open invitation to developers, legal experts, standards bodies, and institutions to collaborate on a shared layer for transferable records.
 Contributions are welcome across:
@@ -111,4 +129,3 @@ Contributions are welcome across:
 
 
 ETRix — Durable Control. Portable Records.
-
