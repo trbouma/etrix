@@ -1,7 +1,7 @@
 # ETRix — Durable Control. Portable Records.
 Transfer, endorsement, and enforcement—without dependence on systems.
 
-![image](./assets/images/etrix.png)
+![ETRix logo](./assets/images/etrix-readme.png)
 
 ## Overview
 
@@ -96,5 +96,4 @@ Real-world pilots and integrations
 
 
 ETRix — Durable Control. Portable Records.
-
 
