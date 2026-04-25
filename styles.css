@@ -1,15 +1,15 @@
 :root {
-  --bg: #f2eee4;
-  --bg-strong: #e5dcc6;
-  --surface: rgba(255, 252, 245, 0.82);
-  --surface-strong: #fffaf0;
-  --ink: #17211d;
-  --muted: #516058;
-  --line: rgba(23, 33, 29, 0.12);
-  --accent: #0f766e;
-  --accent-strong: #0a4f4a;
-  --gold: #b88336;
-  --shadow: 0 20px 60px rgba(33, 30, 17, 0.12);
+  --bg: #071116;
+  --bg-strong: #0b161d;
+  --surface: rgba(14, 25, 32, 0.8);
+  --surface-strong: #101d25;
+  --ink: #ecf4f6;
+  --muted: #96aab0;
+  --line: rgba(199, 224, 230, 0.12);
+  --accent: #3ec7b7;
+  --accent-strong: #90efe4;
+  --gold: #f0c36d;
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
 }
 
 * {
@@ -23,12 +23,12 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "Space Grotesk", sans-serif;
+  font-family: "Manrope", sans-serif;
   color: var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(184, 131, 54, 0.18), transparent 28%),
-    radial-gradient(circle at top right, rgba(15, 118, 110, 0.18), transparent 32%),
-    linear-gradient(180deg, #f8f4eb 0%, var(--bg) 48%, #ece4d2 100%);
+    radial-gradient(circle at top left, rgba(240, 195, 109, 0.12), transparent 24%),
+    radial-gradient(circle at top right, rgba(62, 199, 183, 0.14), transparent 30%),
+    linear-gradient(180deg, #050b0f 0%, var(--bg) 48%, #09131a 100%);
 }
 
 body::before {
@@ -37,8 +37,8 @@ body::before {
   inset: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(rgba(23, 33, 29, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(23, 33, 29, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(236, 244, 246, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(236, 244, 246, 0.03) 1px, transparent 1px);
   background-size: 36px 36px;
   mask-image: radial-gradient(circle at center, black 45%, transparent 90%);
 }
@@ -61,7 +61,7 @@ body::before {
   display: flex;
   align-items: center;
   gap: 0.85rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.04em;
 }
 
@@ -122,12 +122,13 @@ h2,
 h3 {
   margin: 0;
   line-height: 1.02;
+  letter-spacing: -0.03em;
 }
 
 h1,
 h2 {
-  font-family: "Instrument Serif", serif;
-  font-weight: 400;
+  font-family: "Manrope", sans-serif;
+  font-weight: 800;
 }
 
 h1 {
@@ -172,7 +173,7 @@ h1 {
 }
 
 .button-secondary {
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.04);
   border-color: var(--line);
 }
 
@@ -228,8 +229,8 @@ h1 {
   margin-top: 3.5rem;
   padding: 2rem;
   border-radius: 32px;
-  background: rgba(255, 250, 240, 0.5);
-  border: 1px solid rgba(23, 33, 29, 0.08);
+  background: rgba(10, 20, 27, 0.58);
+  border: 1px solid rgba(199, 224, 230, 0.08);
 }
 
 .section-heading {
@@ -269,8 +270,8 @@ h1 {
 
 .section-accent {
   background:
-    linear-gradient(135deg, rgba(15, 118, 110, 0.08), rgba(184, 131, 54, 0.05)),
-    rgba(255, 250, 240, 0.72);
+    linear-gradient(135deg, rgba(62, 199, 183, 0.08), rgba(240, 195, 109, 0.05)),
+    rgba(11, 22, 29, 0.8);
 }
 
 .pillars {
