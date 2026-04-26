@@ -99,6 +99,11 @@ a {
 }
 
 .hero-copy,
+.hero-panel {
+  min-width: 0;
+}
+
+.hero-copy,
 .hero-panel,
 .section,
 .footer {
@@ -111,7 +116,8 @@ a {
 
 .hero-logo {
   display: block;
-  width: min(220px, 42vw);
+  width: 220px;
+  max-width: 100%;
   height: auto;
   margin: 0 0 1.5rem;
   border-radius: 28px;
