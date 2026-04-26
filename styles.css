@@ -109,6 +109,15 @@ a {
   animation-delay: 100ms;
 }
 
+.hero-logo {
+  display: block;
+  width: min(220px, 42vw);
+  height: auto;
+  margin: 0 0 1.5rem;
+  border-radius: 28px;
+  box-shadow: var(--shadow);
+}
+
 .eyebrow {
   margin: 0 0 0.75rem;
   text-transform: uppercase;
@@ -340,5 +349,10 @@ h1 {
   .brand-mark {
     width: 42px;
     height: 42px;
+  }
+
+  .hero-logo {
+    width: min(180px, 52vw);
+    margin-bottom: 1.1rem;
   }
 }
