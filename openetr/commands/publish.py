@@ -7,7 +7,7 @@ from monstr.client.client import ClientPool
 from monstr.encrypt import Keys
 from monstr.event.event import Event
 
-from etrix.config import (
+from openetr.config import (
     CONFIG_AS_USER_KEY,
     DEFAULT_KIND,
     DEFAULT_LIMIT,
@@ -18,7 +18,7 @@ from etrix.config import (
     load_user_config,
     upsert_user_config,
 )
-from etrix.helpers import build_comment, build_digest, format_object_identifier, format_pubkey, resolve_keys
+from openetr.helpers import build_comment, build_digest, format_object_identifier, format_pubkey, resolve_keys
 
 
 async def _run_publish_object(

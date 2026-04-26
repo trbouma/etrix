@@ -2,14 +2,14 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 
 import click
 
-from etrix.config import (
+from openetr.config import (
     USER_CONFIG_DIR,
     USER_CONFIG_PATH,
     load_user_config,
     packaged_defaults_text,
     upsert_user_config,
 )
-from etrix.helpers import parse_authors, resolve_keys
+from openetr.helpers import parse_authors, resolve_keys
 
 
 def _normalize_relays(relay: str) -> str:
@@ -32,17 +32,17 @@ def _normalize_relays(relay: str) -> str:
 def version() -> None:
     """Show the CLI version."""
     try:
-        current_version = package_version("etrix")
+        current_version = package_version("openetr")
     except PackageNotFoundError:
         current_version = "0.1.0"
 
-    click.echo(f"etrix {current_version}")
+    click.echo(f"openetr {current_version}")
 
 
 @click.command("init-config")
-@click.option("--force", is_flag=True, help="Overwrite an existing ~/.etrix/config.yaml file.")
+@click.option("--force", is_flag=True, help="Overwrite an existing ~/.openetr/config.yaml file.")
 def init_config(force: bool) -> None:
-    """Create a user config file at ~/.etrix/config.yaml."""
+    """Create a user config file at ~/.openetr/config.yaml."""
     if USER_CONFIG_PATH.exists() and not force:
         raise click.ClickException(
             f"Config already exists at {USER_CONFIG_PATH}. Use --force to overwrite it."
@@ -77,7 +77,7 @@ def set_config(
     query_output: str | None,
     authors: str | None,
 ) -> None:
-    """Update values in ~/.etrix/config.yaml, or show them if no options are provided."""
+    """Update values in ~/.openetr/config.yaml, or show them if no options are provided."""
     updates = {}
 
     if as_user is not None:

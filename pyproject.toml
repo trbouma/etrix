@@ -1,11 +1,11 @@
 [tool.poetry]
-name = "etrix"
+name = "openetr"
 version = "0.1.0"
-description = "etrix - durable control portable records"
+description = "openetr - durable control portable records"
 authors = ["trbouma <trbouma@gmail.com>"]
 license = "MIT License"
 readme = "README.md"
-include = ["etrix/defaults.yaml"]
+include = ["openetr/defaults.yaml"]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -14,7 +14,7 @@ monstr = "^0.1.9"
 pyyaml = "^6.0.2"
 
 [tool.poetry.scripts]
-etrix = "etrix.cli:main"
+openetr = "openetr.cli:main"
 
 
 [build-system]

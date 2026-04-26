@@ -7,7 +7,7 @@ import click
 from monstr.client.client import ClientPool
 from monstr.event.event import Event
 
-from etrix.config import (
+from openetr.config import (
     CONFIG_AS_USER_KEY,
     DEFAULT_KIND,
     DEFAULT_LIMIT,
@@ -17,7 +17,7 @@ from etrix.config import (
     USER_CONFIG_PATH,
     load_user_config,
 )
-from etrix.helpers import (
+from openetr.helpers import (
     format_object_identifier,
     format_pubkey,
     parse_authors,

@@ -1,12 +1,12 @@
-# ETRix — Durable Control. Portable Records.
+# OpenETR — Durable Control. Portable Records.
 Transfer, endorsement, and enforcement—without dependence on systems.
 
-![ETRix logo](./assets/images/etrix-readme.png)
+![OpenETR logo](./assets/images/etrix-readme.png)
 
 ## Overview
 
-ETRix is an open source project to define and implement a minimal, interoperable layer for electronic transferable records—records whose control can be exercised, proven, and transferred without reliance on any single institution, platform, or registry.
-At its core, ETRix treats control as the operative fact and records as its visible surface. Rather than binding authority to systems, ETRix binds it to verifiable control structures that can persist, move, and be independently validated across environments.
+OpenETR is an open source project to define and implement a minimal, interoperable layer for electronic transferable records—records whose control can be exercised, proven, and transferred without reliance on any single institution, platform, or registry.
+At its core, OpenETR treats control as the operative fact and records as its visible surface. Rather than binding authority to systems, OpenETR binds it to verifiable control structures that can persist, move, and be independently validated across environments.
 The result is a portable, durable foundation for digital instruments such as bills of lading, warehouse receipts, promissory notes, certificates, and other records that must carry authority and change hands.
 
 ## Problem
@@ -22,24 +22,24 @@ This creates friction for any record that must function like a thing that can be
 
 ## Proposal
 
-ETRix introduces a simple model for records that are:
+OpenETR introduces a simple model for records that are:
 
 * Durable — persist independently of any single system
 * Portable — transferable without loss of meaning or authority
 * Verifiable — independently provable through cryptographic control
 * Composable — usable across applications, jurisdictions, and infrastructures
 
-ETRix does not replace legal or institutional frameworks. It provides a technical substrate upon which they can operate more directly and with less dependency.
+OpenETR does not replace legal or institutional frameworks. It provides a technical substrate upon which they can operate more directly and with less dependency.
 
 ## Core Model
 
-ETRix reduces the system to three primitives:
+OpenETR reduces the system to three primitives:
 
 * Objects (Records) — the thing that carries meaning and authority
 * Controllers (Keys) — the entity exercising exclusive control
 * Events (Actions) — transfers, endorsements, and attestations
 
-From these, ETRix enables three fundamental operations:
+From these, OpenETR enables three fundamental operations:
 * Transfer — movement of control from one controller to another
 * Endorsement — assignment of meaning, recognition, or delegation
 * Enforcement — recognition of control with binding effect
@@ -57,7 +57,7 @@ Control over ownership — ownership is derived; control is observable
 * Interoperability — compatible with existing legal and technical frameworks
 
 ## Scope
-The ETRix project will deliver:
+The OpenETR project will deliver:
 
 * A reference specification for transferable records
 * A canonical data model for objects, controllers, and events
@@ -88,7 +88,7 @@ Transferable records require shared understanding and independent verification. 
 * Community-driven evolution
 
 ## Vision
-ETRix establishes a foundation where:
+OpenETR establishes a foundation where:
 
 
 * Records are not confined to systems
@@ -100,9 +100,9 @@ A world where:
 
 ## Nostr Implementation (Initial)
 
-ETRix includes an initial implementation on Nostr to demonstrate durable control and portable records using existing open infrastructure.
+OpenETR includes an initial implementation on Nostr to demonstrate durable control and portable records using existing open infrastructure.
 
-Nostr provides a simple model of signed events + relay distribution + independent verification. ETRix builds on this by defining how those events represent records, control, and transfer.
+Nostr provides a simple model of signed events + relay distribution + independent verification. OpenETR builds on this by defining how those events represent records, control, and transfer.
 
 ## CLI Example
 
@@ -115,7 +115,7 @@ shasum -a 256 ./README.md
 That prints the SHA-256 digest for `README.md` locally so you can inspect or compare it before publishing.
 
 ```bash
-poetry run etrix publish-object \
+poetry run openetr publish-object \
   --relay wss://relay.getsafebox.app/ \
   --digest-file ./README.md
 ```
@@ -123,7 +123,7 @@ poetry run etrix publish-object \
 This hashes `README.md` with SHA-256, uses that digest for both the `d` and `o` tags, publishes the event, and then queries the relay for the matching record.
 
 ## Get Involved
-ETRix is an open invitation to developers, legal experts, standards bodies, and institutions to collaborate on a shared layer for transferable records.
+OpenETR is an open invitation to developers, legal experts, standards bodies, and institutions to collaborate on a shared layer for transferable records.
 Contributions are welcome across:
 
 * Specification design
@@ -132,4 +132,4 @@ Contributions are welcome across:
 * Real-world pilots and integrations
 
 
-ETRix — Durable Control. Portable Records.
+OpenETR — Durable Control. Portable Records.

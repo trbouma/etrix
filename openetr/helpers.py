@@ -8,7 +8,7 @@ import click
 from monstr.encrypt import Keys
 from monstr.event.event import Event
 
-from etrix.config import DEFAULT_KIND
+from openetr.config import DEFAULT_KIND
 
 NOBJ_PREFIX = "nobj"
 

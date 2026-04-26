@@ -1,6 +1,6 @@
 # Specifications
 
-This directory is reserved for ETRIX specification drafts and supporting documents.
+This directory is reserved for OpenETR specification drafts and supporting documents.
 
 Suggested starting points:
 

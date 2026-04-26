@@ -1,12 +1,12 @@
 import click
-from etrix.commands.core import hello, init_config, set_config, version
-from etrix.commands.publish import publish_object
-from etrix.commands.query import query_object, query_profile
+from openetr.commands.core import hello, init_config, set_config, version
+from openetr.commands.publish import publish_object
+from openetr.commands.query import query_object, query_profile
 
 
 @click.group()
 def main() -> None:
-    """ETRix command line utility."""
+    """OpenETR command line utility."""
 
 
 main.add_command(version)

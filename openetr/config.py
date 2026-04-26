@@ -3,8 +3,8 @@ from pathlib import Path
 
 import yaml
 
-PACKAGED_DEFAULTS_PATH = files("etrix").joinpath("defaults.yaml")
-USER_CONFIG_DIR = Path.home() / ".etrix"
+PACKAGED_DEFAULTS_PATH = files("openetr").joinpath("defaults.yaml")
+USER_CONFIG_DIR = Path.home() / ".openetr"
 USER_CONFIG_PATH = USER_CONFIG_DIR / "config.yaml"
 CONFIG_AS_USER_KEY = "as_user"
 
