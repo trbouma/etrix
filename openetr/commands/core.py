@@ -1,11 +1,19 @@
 from importlib.metadata import PackageNotFoundError, metadata as package_metadata, version as package_version
 from importlib.resources import files
+import asyncio
+import json
+from pathlib import Path
 from random import choice
 
 import click
+from monstr.client.client import ClientPool
+from monstr.event.event import Event
 import yaml
 
 from openetr.config import (
+    CONFIG_AS_USER_KEY,
+    DEFAULT_QUERY_TIMEOUT,
+    DEFAULT_RELAYS,
     ACTIVE_PROFILE_KEY,
     DEFAULT_PROFILE_NAME,
     PROFILES_KEY,
@@ -22,7 +30,17 @@ from openetr.config import (
     upsert_profile_config,
     write_user_config,
 )
-from openetr.helpers import parse_authors, resolve_keys
+from openetr.helpers import (
+    GENERATE_LEI_SENTINEL,
+    format_object_identifier,
+    format_pubkey,
+    parse_authors,
+    resolve_lei,
+    resolve_keys,
+    resolve_query_digest,
+    validate_lei,
+    validate_npub,
+)
 
 MLETR_TRIVIA_PATH = files("openetr").joinpath("mletr_trivia.yaml")
 
@@ -63,6 +81,7 @@ def _profile_updates(
     limit: int | None,
     query_output: str | None,
     authors: str | None,
+    lei: str | None,
 ) -> dict:
     updates = {}
 
@@ -83,6 +102,8 @@ def _profile_updates(
     if authors is not None:
         parse_authors(authors)
         updates["authors"] = [author.strip() for author in authors.split(",") if author.strip()]
+    if lei is not None:
+        updates["lei"] = resolve_lei(lei)
 
     return updates
 
@@ -92,6 +113,58 @@ def _print_profile_config(profile: str, resolved: dict, is_active: bool) -> None
     click.echo(f"{profile}{marker}:")
     for key, value in resolved.items():
         click.echo(f"  {key}: {value}")
+
+
+async def _fetch_kind0_profile(relays: str, pubkey_hex: str, timeout: int) -> dict | None:
+    async with ClientPool(
+        relays.split(","),
+        query_timeout=timeout,
+        timeout=timeout,
+    ) as client:
+        events = await client.query(
+            {
+                "authors": [pubkey_hex],
+                "kinds": [0],
+                "limit": 1,
+            },
+            emulate_single=True,
+            wait_connect=True,
+            timeout=timeout,
+        )
+
+    Event.sort(events, inplace=True, reverse=True)
+    if not events or not events[0].content:
+        return None
+
+    try:
+        profile = json.loads(events[0].content)
+    except json.JSONDecodeError:
+        return None
+
+    return profile or None
+
+
+def _print_social_profile(profile: dict) -> None:
+    click.echo("social profile:")
+    ordered_fields = [
+        "name",
+        "display_name",
+        "about",
+        "picture",
+        "banner",
+        "website",
+        "nip05",
+        "lud16",
+        "lud06",
+    ]
+    for field in ordered_fields:
+        value = profile.get(field)
+        if value:
+            click.echo(f"  {field}: {value}")
+
+    for key, value in profile.items():
+        if key not in set(ordered_fields) and value:
+            click.echo(f"  {key}: {value}")
 
 
 def _package_info() -> dict[str, str]:
@@ -182,6 +255,34 @@ def info() -> None:
     click.echo(f"  Query output: {active_profile_config.get('query_output')}")
 
 
+@click.command("get-object-id")
+@click.option(
+    "--digest-file",
+    required=True,
+    type=click.Path(exists=False, dir_okay=False, path_type=str),
+    help="Path to the file to hash with SHA-256.",
+)
+@click.option("--bech32", is_flag=True, help="Return the object identifier as an nobj bech32 value.")
+def get_object_id(digest_file: str, bech32: bool) -> None:
+    """Return the object identifier for a file in a pipe-friendly format."""
+    digest_hex, _ = resolve_query_digest(digest=None, digest_file=Path(digest_file))
+    click.echo(format_object_identifier(digest_hex) if bech32 else digest_hex)
+
+
+@click.command("validate")
+@click.option("--lei", default=None, help="Validate a Legal Entity Identifier.")
+@click.option("--npub", default=None, help="Validate a Nostr npub bech32 public key.")
+def validate(lei: str | None, npub: str | None) -> None:
+    """Validate a supported identifier and return a pipe-friendly result."""
+    if (lei is None and npub is None) or (lei is not None and npub is not None):
+        raise click.ClickException("supply exactly one of --lei or --npub")
+
+    is_valid = validate_lei(lei) if lei is not None else validate_npub(npub)
+    click.echo("valid" if is_valid else "invalid")
+    if not is_valid:
+        raise SystemExit(1)
+
+
 @click.command("init-config")
 @click.option("--force", is_flag=True, help="Overwrite an existing ~/.openetr/config.yaml file.")
 def init_config(force: bool) -> None:
@@ -223,6 +324,27 @@ def profile_show(profile: str | None) -> None:
     resolved = get_profile_config(profile_name, config)
     _print_profile_config(profile_name, resolved, profile_name == get_active_profile_name(config))
 
+    configured_key = resolved.get(CONFIG_AS_USER_KEY)
+    if not configured_key:
+        return
+
+    pubkey_hex = resolve_keys(configured_key).public_key_hex()
+    resolved_relays = resolved.get("relays", DEFAULT_RELAYS)
+    resolved_timeout = resolved.get("query_timeout", DEFAULT_QUERY_TIMEOUT)
+
+    click.echo(f"pubkey: {format_pubkey(pubkey_hex)}")
+    social_profile = asyncio.run(
+        _fetch_kind0_profile(
+            relays=resolved_relays,
+            pubkey_hex=pubkey_hex,
+            timeout=resolved_timeout,
+        )
+    )
+    if social_profile:
+        _print_social_profile(social_profile)
+    else:
+        click.echo("social profile: none found")
+
 
 @profile_group.command("use")
 @click.argument("profile")
@@ -262,6 +384,12 @@ def profile_delete(profile: str, force: bool) -> None:
     help="Set the default query output format.",
 )
 @click.option("--authors", default=None, help="Validate one or more comma-separated npub values before saving.")
+@click.option(
+    "--lei",
+    default=None,
+    flag_value=GENERATE_LEI_SENTINEL,
+    help="Set a legal entity identifier, or pass --lei with no value to generate an example LEI.",
+)
 def profile_set(
     profile: str | None,
     as_user: str | None,
@@ -272,6 +400,7 @@ def profile_set(
     limit: int | None,
     query_output: str | None,
     authors: str | None,
+    lei: str | None,
 ) -> None:
     """Update or show a profile."""
     config = load_user_config()
@@ -286,6 +415,7 @@ def profile_set(
         limit=limit,
         query_output=query_output,
         authors=authors,
+        lei=lei,
     )
 
     if not updates:
@@ -316,6 +446,12 @@ def profile_set(
     help="Set the default query output format.",
 )
 @click.option("--authors", default=None, help="Validate one or more comma-separated npub values before saving.")
+@click.option(
+    "--lei",
+    default=None,
+    flag_value=GENERATE_LEI_SENTINEL,
+    help="Set a legal entity identifier, or pass --lei with no value to generate an example LEI.",
+)
 def set_config(
     profile: str | None,
     as_user: str | None,
@@ -326,6 +462,7 @@ def set_config(
     limit: int | None,
     query_output: str | None,
     authors: str | None,
+    lei: str | None,
 ) -> None:
     """Update or show the active profile config."""
     ctx = click.get_current_context()
@@ -340,6 +477,7 @@ def set_config(
         limit=limit,
         query_output=query_output,
         authors=authors,
+        lei=lei,
     )
 
 

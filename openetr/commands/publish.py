@@ -21,7 +21,15 @@ from openetr.config import (
     load_user_config,
     upsert_profile_config,
 )
-from openetr.helpers import build_comment, build_digest, format_object_identifier, format_pubkey, resolve_keys
+from openetr.helpers import (
+    GENERATE_LEI_SENTINEL,
+    build_comment,
+    build_digest,
+    format_object_identifier,
+    format_pubkey,
+    resolve_keys,
+    resolve_lei,
+)
 
 
 async def _run_publish_object(
@@ -285,6 +293,7 @@ def _profile_updates(
     nip05: str | None,
     lud16: str | None,
     lud06: str | None,
+    lei: str | None,
 ) -> dict:
     updates = {}
     if name is not None:
@@ -305,6 +314,8 @@ def _profile_updates(
         updates["lud16"] = lud16
     if lud06 is not None:
         updates["lud06"] = lud06
+    if lei is not None:
+        updates["lei"] = resolve_lei(lei)
     return updates
 
 
@@ -418,6 +429,12 @@ def publish_object(
 @click.option("--nip05", default=None, help="Profile NIP-05 identifier.")
 @click.option("--lud16", default=None, help="Lightning address.")
 @click.option("--lud06", default=None, help="LNURL pay string.")
+@click.option(
+    "--lei",
+    default=None,
+    flag_value=GENERATE_LEI_SENTINEL,
+    help="Profile legal entity identifier, or pass --lei with no value to generate an example LEI.",
+)
 @click.option("--replace", is_flag=True, help="Replace the entire profile instead of merging with the current one.")
 @click.option(
     "--publish-wait",
@@ -445,6 +462,7 @@ def publish_profile(
     nip05: str | None,
     lud16: str | None,
     lud06: str | None,
+    lei: str | None,
     replace: bool,
     publish_wait: float | None,
     query_timeout: int | None,
@@ -463,6 +481,7 @@ def publish_profile(
         nip05=nip05,
         lud16=lud16,
         lud06=lud06,
+        lei=lei,
     )
     if not updates:
         raise click.ClickException("No profile fields supplied. Pass at least one profile option to publish.")

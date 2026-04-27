@@ -20,6 +20,7 @@ PROFILE_KEYS = {
     "limit",
     "query_output",
     "authors",
+    "lei",
 }
 
 

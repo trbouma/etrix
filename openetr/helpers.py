@@ -1,5 +1,7 @@
 import hashlib
 import json
+import random
+import string
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +16,79 @@ from monstr.event.event import Event
 from openetr.config import DEFAULT_KIND
 
 NOBJ_PREFIX = "nobj"
+GENERATE_LEI_SENTINEL = "__GENERATE_LEI__"
+
+
+def _lei_char_to_int(char: str) -> str:
+    if char.isdigit():
+        return char
+    return str(ord(char) - 55)
+
+
+def _prepare_lei_for_mod97(value: str) -> str:
+    return "".join(_lei_char_to_int(char) for char in value)
+
+
+def _lei_mod97(value: str) -> int:
+    remainder = 0
+    for char in value:
+        remainder = (remainder * 10 + int(char)) % 97
+    return remainder
+
+
+def _compute_lei_check_digits(base: str) -> str:
+    prepared = _prepare_lei_for_mod97(base + "00")
+    return str(98 - _lei_mod97(prepared)).zfill(2)
+
+
+def generate_example_lei() -> str:
+    lou = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
+    entity = "".join(random.choices(string.ascii_uppercase + string.digits, k=14))
+    base = lou + entity
+    return base + _compute_lei_check_digits(base)
+
+
+def validate_lei(value: str) -> bool:
+    lei_value = value.strip().upper()
+    if len(lei_value) != 20:
+        return False
+    if not all(char.isdigit() or char.isalpha() for char in lei_value):
+        return False
+    if not lei_value[-2:].isdigit():
+        return False
+    return _lei_mod97(_prepare_lei_for_mod97(lei_value)) == 1
+
+
+def validate_npub(value: str) -> bool:
+    npub_value = value.strip()
+    if not npub_value.startswith("npub"):
+        return False
+
+    try:
+        pubkey_hex = Keys.bech32_to_hex(npub_value)
+    except Exception:
+        return False
+    if pubkey_hex is None or len(pubkey_hex) != 64:
+        return False
+
+    try:
+        int(pubkey_hex, 16)
+    except ValueError:
+        return False
+
+    return True
+
+
+def resolve_lei(value: str | None) -> str | None:
+    if value is None:
+        return None
+    if value == GENERATE_LEI_SENTINEL:
+        return generate_example_lei()
+
+    lei_value = value.strip().upper()
+    if not validate_lei(lei_value):
+        raise click.ClickException("lei must be a valid 20-character Legal Entity Identifier")
+    return lei_value
 
 
 def resolve_keys(as_user: str | None) -> Keys:

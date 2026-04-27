@@ -72,7 +72,7 @@ async def _fetch_profile(
 
 def _print_profile(profile: dict) -> None:
     click.echo("profile:")
-    for field in ["name", "display_name", "about", "picture", "banner", "website", "nip05", "lud16", "lud06"]:
+    for field in ["name", "display_name", "about", "picture", "banner", "website", "nip05", "lud16", "lud06", "lei"]:
         value = profile.get(field)
         if value:
             click.echo(f"  {field}: {value}")
@@ -80,7 +80,7 @@ def _print_profile(profile: dict) -> None:
     remaining = {
         key: value
         for key, value in profile.items()
-        if key not in {"name", "display_name", "about", "picture", "banner", "website", "nip05", "lud16", "lud06"}
+        if key not in {"name", "display_name", "about", "picture", "banner", "website", "nip05", "lud16", "lud06", "lei"}
     }
     for key, value in remaining.items():
         click.echo(f"  {key}: {value}")

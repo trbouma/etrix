@@ -29,4 +29,4 @@ description: One-sentence summary of the article.
 
 ## Repository view
 
-This same Markdown file is used both for the repository view on GitHub and for the Jekyll-rendered page on GitHub Pages.
+If you want the repository-oriented reference file as well, see [REPO_INDEX.md](./REPO_INDEX.md).

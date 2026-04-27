@@ -73,7 +73,7 @@ Draft specifications and supporting documents live in [docs/specs/INDEX.md](docs
 
 ## Posts
 
-Long-form project writing and essay-style articles live in [docs/posts/INDEX.md](docs/posts/INDEX.md).
+Long-form project writing and essay-style articles live in [docs/posts/index.md](docs/posts/index.md).
 
 ## Use Cases
 
