@@ -1,0 +1,9 @@
+title: OpenETR
+description: Durable control. Portable records.
+markdown: kramdown
+defaults:
+  - scope:
+      path: "docs/posts"
+      type: "pages"
+    values:
+      layout: post

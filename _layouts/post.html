@@ -1,0 +1,40 @@
+---
+layout: default
+---
+<div class="page-shell">
+  <header class="hero">
+    <nav class="topbar">
+      <div class="brand">
+        <img
+          src="{{ '/assets/images/openetr-readme.png' | relative_url }}"
+          alt="OpenETR logo"
+          class="brand-mark"
+        />
+        <span>OpenETR</span>
+      </div>
+      <div class="topbar-links">
+        <a href="{{ '/' | relative_url }}">Home</a>
+        <a href="{{ '/docs/posts/' | relative_url }}">Posts</a>
+        <a href="https://github.com/trbouma/openetr/blob/main/README.md">Readme</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="section">
+      <div class="section-heading">
+        {% if page.eyebrow %}
+          <p class="eyebrow">{{ page.eyebrow }}</p>
+        {% endif %}
+        <h1 class="post-title">{{ page.title }}</h1>
+        {% if page.description %}
+          <p class="lede">{{ page.description }}</p>
+        {% endif %}
+      </div>
+
+      <article class="post-body">
+        {{ content }}
+      </article>
+    </section>
+  </main>
+</div>

@@ -15,9 +15,11 @@ from openetr.config import (
     DEFAULT_PUBLISH_WAIT,
     DEFAULT_QUERY_TIMEOUT,
     DEFAULT_RELAYS,
+    get_profile_config,
     USER_CONFIG_PATH,
+    get_active_profile_name,
     load_user_config,
-    upsert_user_config,
+    upsert_profile_config,
 )
 from openetr.helpers import build_comment, build_digest, format_object_identifier, format_pubkey, resolve_keys
 
@@ -250,14 +252,14 @@ async def _run_publish_profile(
         click.echo("No OK message was observed from the relay before the command exited.")
 
 
-def _resolve_publish_key(as_user: str | None) -> Keys:
+def _resolve_publish_key(profile: str, as_user: str | None) -> Keys:
     if as_user is not None:
         keys = resolve_keys(as_user)
-        upsert_user_config({CONFIG_AS_USER_KEY: keys.private_key_bech32()})
+        upsert_profile_config(profile, {CONFIG_AS_USER_KEY: keys.private_key_bech32()})
         return keys
 
-    user_config = load_user_config()
-    configured_key = user_config.get(CONFIG_AS_USER_KEY)
+    profile_config = get_profile_config(profile, load_user_config())
+    configured_key = profile_config.get(CONFIG_AS_USER_KEY)
     if configured_key:
         return resolve_keys(configured_key)
 
@@ -268,7 +270,7 @@ def _resolve_publish_key(as_user: str | None) -> Keys:
         abort=True,
     )
     keys = Keys()
-    upsert_user_config({CONFIG_AS_USER_KEY: keys.private_key_bech32()})
+    upsert_profile_config(profile, {CONFIG_AS_USER_KEY: keys.private_key_bech32()})
     click.echo(f"Generated a new key and saved it to {USER_CONFIG_PATH}")
     return keys
 
@@ -307,7 +309,8 @@ def _profile_updates(
 
 
 @click.command("publish-object")
-@click.option("--relays", default=DEFAULT_RELAYS, show_default=True, help="Comma separated relay URLs to use.")
+@click.option("--profile", default=None, help="Profile to use; defaults to the active profile.")
+@click.option("--relays", default=None, help="Comma separated relay URLs to use.")
 @click.option(
     "--digest",
     default=None,
@@ -332,40 +335,45 @@ def _profile_updates(
 @click.option(
     "--publish-wait",
     type=float,
-    default=DEFAULT_PUBLISH_WAIT,
-    show_default=True,
+    default=None,
     help="Seconds to wait after publish before querying.",
 )
 @click.option(
     "--query-timeout",
     type=int,
-    default=DEFAULT_QUERY_TIMEOUT,
-    show_default=True,
+    default=None,
     help="Seconds to wait for the query to complete.",
 )
 @click.option(
     "--limit",
     type=int,
-    default=DEFAULT_LIMIT,
-    show_default=True,
+    default=None,
     help="Query result limit.",
 )
 @click.option("--debug", is_flag=True, help="Enable debug logging.")
 def publish_object(
-    relays: str,
+    profile: str | None,
+    relays: str | None,
     digest: str | None,
     digest_file: Path | None,
     as_user: str | None,
     comment: str | None,
-    publish_wait: float,
-    query_timeout: int,
-    limit: int,
+    publish_wait: float | None,
+    query_timeout: int | None,
+    limit: int | None,
     debug: bool,
 ) -> None:
     """Publish and query a replaceable event with matching d and o tags."""
     logging.getLogger().setLevel(logging.DEBUG if debug else logging.INFO)
 
-    keys = _resolve_publish_key(as_user)
+    profile_name = profile or get_active_profile_name()
+    profile_config = get_profile_config(profile_name)
+    resolved_relays = relays or profile_config.get("relays", DEFAULT_RELAYS)
+    resolved_publish_wait = publish_wait if publish_wait is not None else profile_config.get("publish_wait", DEFAULT_PUBLISH_WAIT)
+    resolved_query_timeout = query_timeout if query_timeout is not None else profile_config.get("query_timeout", DEFAULT_QUERY_TIMEOUT)
+    resolved_limit = limit if limit is not None else profile_config.get("limit", DEFAULT_LIMIT)
+
+    keys = _resolve_publish_key(profile_name, as_user)
     resolved_digest, generated_at, resolved_file, file_size = build_digest(
         digest=digest,
         digest_file=str(digest_file) if digest_file is not None else None,
@@ -381,20 +389,21 @@ def publish_object(
 
     asyncio.run(
         _run_publish_object(
-            relays=relays,
+            relays=resolved_relays,
             digest=resolved_digest,
             as_user=keys,
             comment=resolved_comment,
-            publish_wait=publish_wait,
-            query_timeout=query_timeout,
-            limit=limit,
+            publish_wait=resolved_publish_wait,
+            query_timeout=resolved_query_timeout,
+            limit=resolved_limit,
             digest_file=resolved_file,
         )
     )
 
 
 @click.command("publish-profile")
-@click.option("--relays", default=DEFAULT_RELAYS, show_default=True, help="Comma separated relay URLs to use.")
+@click.option("--profile", default=None, help="Profile to use; defaults to the active profile.")
+@click.option("--relays", default=None, help="Comma separated relay URLs to use.")
 @click.option(
     "--as-user",
     default=None,
@@ -413,20 +422,19 @@ def publish_object(
 @click.option(
     "--publish-wait",
     type=float,
-    default=DEFAULT_PUBLISH_WAIT,
-    show_default=True,
+    default=None,
     help="Seconds to wait after publish before querying.",
 )
 @click.option(
     "--query-timeout",
     type=int,
-    default=DEFAULT_QUERY_TIMEOUT,
-    show_default=True,
+    default=None,
     help="Seconds to wait for the query to complete.",
 )
 @click.option("--debug", is_flag=True, help="Enable debug logging.")
 def publish_profile(
-    relays: str,
+    profile: str | None,
+    relays: str | None,
     as_user: str | None,
     name: str | None,
     display_name: str | None,
@@ -438,8 +446,8 @@ def publish_profile(
     lud16: str | None,
     lud06: str | None,
     replace: bool,
-    publish_wait: float,
-    query_timeout: int,
+    publish_wait: float | None,
+    query_timeout: int | None,
     debug: bool,
 ) -> None:
     """Publish a Nostr kind 0 profile event."""
@@ -459,22 +467,28 @@ def publish_profile(
     if not updates:
         raise click.ClickException("No profile fields supplied. Pass at least one profile option to publish.")
 
-    keys = _resolve_publish_key(as_user)
+    profile_name = profile or get_active_profile_name()
+    profile_config = get_profile_config(profile_name)
+    resolved_relays = relays or profile_config.get("relays", DEFAULT_RELAYS)
+    resolved_publish_wait = publish_wait if publish_wait is not None else profile_config.get("publish_wait", DEFAULT_PUBLISH_WAIT)
+    resolved_query_timeout = query_timeout if query_timeout is not None else profile_config.get("query_timeout", DEFAULT_QUERY_TIMEOUT)
+
+    keys = _resolve_publish_key(profile_name, as_user)
 
     async def _publish() -> None:
         current_profile = {} if replace else await _fetch_current_profile(
-            relays=relays,
+            relays=resolved_relays,
             pubkey_hex=keys.public_key_hex(),
-            query_timeout=query_timeout,
+            query_timeout=resolved_query_timeout,
         )
         merged_profile = dict(current_profile)
         merged_profile.update(updates)
         await _run_publish_profile(
-            relays=relays,
+            relays=resolved_relays,
             as_user=keys,
             content=merged_profile,
-            publish_wait=publish_wait,
-            query_timeout=query_timeout,
+            publish_wait=resolved_publish_wait,
+            query_timeout=resolved_query_timeout,
         )
 
     asyncio.run(_publish())

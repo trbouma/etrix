@@ -1,31 +1,120 @@
-from importlib.metadata import PackageNotFoundError, version as package_version
+from importlib.metadata import PackageNotFoundError, metadata as package_metadata, version as package_version
+from importlib.resources import files
+from random import choice
 
 import click
+import yaml
 
 from openetr.config import (
+    ACTIVE_PROFILE_KEY,
+    DEFAULT_PROFILE_NAME,
+    PROFILES_KEY,
     USER_CONFIG_DIR,
     USER_CONFIG_PATH,
+    delete_profile,
+    ensure_profile,
+    get_active_profile_name,
+    get_profile_config,
+    list_profiles,
     load_user_config,
-    packaged_defaults_text,
-    upsert_user_config,
+    render_user_config_template,
+    set_active_profile,
+    upsert_profile_config,
+    write_user_config,
 )
 from openetr.helpers import parse_authors, resolve_keys
 
+MLETR_TRIVIA_PATH = files("openetr").joinpath("mletr_trivia.yaml")
 
-def _normalize_relays(relay: str) -> str:
-    relays = []
-    for item in relay.split(","):
+
+def _load_mletr_trivia_facts() -> list[str]:
+    with MLETR_TRIVIA_PATH.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+
+    facts = data.get("facts", [])
+    if not facts:
+        raise click.ClickException("No MLETR trivia facts were found in the packaged data file.")
+
+    return [str(fact) for fact in facts]
+
+
+def _normalize_relays(relays: str) -> str:
+    normalized = []
+    for item in relays.split(","):
         cleaned = item.strip()
         if not cleaned:
             continue
         if not cleaned.startswith("wss://") and not cleaned.startswith("ws://"):
             cleaned = f"wss://{cleaned}"
-        relays.append(cleaned)
+        normalized.append(cleaned)
 
-    if not relays:
-        raise click.ClickException("relay must contain at least one relay URL")
+    if not normalized:
+        raise click.ClickException("relays must contain at least one relay URL")
 
-    return ",".join(relays)
+    return ",".join(normalized)
+
+
+def _profile_updates(
+    as_user: str | None,
+    relays: str | None,
+    kind: int | None,
+    query_timeout: int | None,
+    publish_wait: float | None,
+    limit: int | None,
+    query_output: str | None,
+    authors: str | None,
+) -> dict:
+    updates = {}
+
+    if as_user is not None:
+        updates["as_user"] = resolve_keys(as_user).private_key_bech32()
+    if relays is not None:
+        updates["relays"] = _normalize_relays(relays)
+    if kind is not None:
+        updates["kind"] = kind
+    if query_timeout is not None:
+        updates["query_timeout"] = query_timeout
+    if publish_wait is not None:
+        updates["publish_wait"] = publish_wait
+    if limit is not None:
+        updates["limit"] = limit
+    if query_output is not None:
+        updates["query_output"] = query_output
+    if authors is not None:
+        parse_authors(authors)
+        updates["authors"] = [author.strip() for author in authors.split(",") if author.strip()]
+
+    return updates
+
+
+def _print_profile_config(profile: str, resolved: dict, is_active: bool) -> None:
+    marker = " (active)" if is_active else ""
+    click.echo(f"{profile}{marker}:")
+    for key, value in resolved.items():
+        click.echo(f"  {key}: {value}")
+
+
+def _package_info() -> dict[str, str]:
+    fallback = {
+        "name": "openetr",
+        "version": "0.1.0",
+        "summary": "openetr - durable control portable records",
+        "license": "MIT License",
+        "author": "trbouma <trbouma@gmail.com>",
+    }
+
+    try:
+        meta = package_metadata("openetr")
+    except PackageNotFoundError:
+        return fallback
+
+    return {
+        "name": meta.get("Name", fallback["name"]),
+        "version": meta.get("Version", fallback["version"]),
+        "summary": meta.get("Summary", fallback["summary"]),
+        "license": meta.get("License", fallback["license"]),
+        "author": meta.get("Author-email", meta.get("Author", fallback["author"])),
+    }
 
 
 @click.command()
@@ -57,6 +146,42 @@ def version(banner: bool) -> None:
     click.echo(f"openetr {current_version}")
 
 
+@click.command("info")
+def info() -> None:
+    """Show package, license, release, and local runtime information."""
+    package = _package_info()
+    config = load_user_config()
+    profiles = list_profiles(config)
+    active_profile = get_active_profile_name(config)
+    active_profile_config = get_profile_config(active_profile, config)
+
+    click.echo("OpenETR")
+    click.echo(f"  Name: {package['name']}")
+    click.echo(f"  Current release: {package['version']}")
+    click.echo(f"  Summary: {package['summary']}")
+    click.echo(f"  License: {package['license']}")
+    click.echo(f"  Author: {package['author']}")
+    click.echo("  Entry point: openetr")
+    click.echo("")
+    click.echo("Resources")
+    click.echo(f"  Packaged defaults: {files('openetr').joinpath('defaults.yaml')}")
+    click.echo(f"  Packaged trivia: {MLETR_TRIVIA_PATH}")
+    click.echo(f"  MLETR trivia facts: {len(_load_mletr_trivia_facts())}")
+    click.echo("")
+    click.echo("Config")
+    click.echo(f"  Config directory: {USER_CONFIG_DIR}")
+    click.echo(f"  Config file: {USER_CONFIG_PATH}")
+    click.echo(f"  Config exists: {'yes' if USER_CONFIG_PATH.exists() else 'no'}")
+    click.echo(f"  Active profile: {active_profile}")
+    click.echo(f"  Profiles: {', '.join(profiles)}")
+    click.echo(f"  Active relays: {active_profile_config.get('relays')}")
+    click.echo(f"  Default kind: {active_profile_config.get('kind')}")
+    click.echo(f"  Query timeout: {active_profile_config.get('query_timeout')}")
+    click.echo(f"  Publish wait: {active_profile_config.get('publish_wait')}")
+    click.echo(f"  Query limit: {active_profile_config.get('limit')}")
+    click.echo(f"  Query output: {active_profile_config.get('query_output')}")
+
+
 @click.command("init-config")
 @click.option("--force", is_flag=True, help="Overwrite an existing ~/.openetr/config.yaml file.")
 def init_config(force: bool) -> None:
@@ -67,11 +192,117 @@ def init_config(force: bool) -> None:
         )
 
     USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    USER_CONFIG_PATH.write_text(packaged_defaults_text(), encoding="utf-8")
+    USER_CONFIG_PATH.write_text(render_user_config_template(), encoding="utf-8")
     click.echo(f"Wrote config to {USER_CONFIG_PATH}")
 
 
+@click.group("profile")
+def profile_group() -> None:
+    """Manage OpenETR profiles."""
+
+
+@profile_group.command("list")
+def profile_list() -> None:
+    """List configured profiles."""
+    config = load_user_config()
+    active = get_active_profile_name(config)
+    profiles = list_profiles(config)
+
+    click.echo(f"Profiles in {USER_CONFIG_PATH}:")
+    for name in profiles:
+        marker = " *" if name == active else ""
+        click.echo(f"  {name}{marker}")
+
+
+@profile_group.command("show")
+@click.argument("profile", required=False)
+def profile_show(profile: str | None) -> None:
+    """Show the resolved config for a profile."""
+    config = load_user_config()
+    profile_name = profile or get_active_profile_name(config)
+    resolved = get_profile_config(profile_name, config)
+    _print_profile_config(profile_name, resolved, profile_name == get_active_profile_name(config))
+
+
+@profile_group.command("use")
+@click.argument("profile")
+def profile_use(profile: str) -> None:
+    """Set the active profile."""
+    set_active_profile(profile)
+    click.echo(f"Active profile set to {profile}")
+
+
+@profile_group.command("delete")
+@click.argument("profile")
+@click.option("--force", is_flag=True, help="Delete the profile without confirmation.")
+def profile_delete(profile: str, force: bool) -> None:
+    """Delete a profile."""
+    if profile == DEFAULT_PROFILE_NAME and not force:
+        raise click.ClickException("Refusing to delete the default profile without --force.")
+
+    if not force:
+        click.confirm(f"Delete profile '{profile}'?", abort=True)
+
+    delete_profile(profile)
+    click.echo(f"Deleted profile {profile}")
+
+
+@profile_group.command("set")
+@click.argument("profile", required=False)
+@click.option("--as-user", default=None, help="Set the default nsec private key.")
+@click.option("--relays", default=None, help="Set the default relay URL or comma-separated relay pool.")
+@click.option("--kind", type=int, default=None, help="Set the default event kind.")
+@click.option("--query-timeout", type=int, default=None, help="Set the default query timeout in seconds.")
+@click.option("--publish-wait", type=float, default=None, help="Set the default publish wait in seconds.")
+@click.option("--limit", type=int, default=None, help="Set the default query result limit.")
+@click.option(
+    "--query-output",
+    type=click.Choice(["heads", "full", "raw", "tags"]),
+    default=None,
+    help="Set the default query output format.",
+)
+@click.option("--authors", default=None, help="Validate one or more comma-separated npub values before saving.")
+def profile_set(
+    profile: str | None,
+    as_user: str | None,
+    relays: str | None,
+    kind: int | None,
+    query_timeout: int | None,
+    publish_wait: float | None,
+    limit: int | None,
+    query_output: str | None,
+    authors: str | None,
+) -> None:
+    """Update or show a profile."""
+    config = load_user_config()
+    profile_name = profile or get_active_profile_name(config)
+    profile_exists = profile_name in config.get(PROFILES_KEY, {})
+    updates = _profile_updates(
+        as_user=as_user,
+        relays=relays,
+        kind=kind,
+        query_timeout=query_timeout,
+        publish_wait=publish_wait,
+        limit=limit,
+        query_output=query_output,
+        authors=authors,
+    )
+
+    if not updates:
+        if profile is not None and not profile_exists:
+            config = ensure_profile(profile_name, config)
+            write_user_config(config)
+            click.echo(f"Created profile {profile_name} in {USER_CONFIG_PATH}")
+        resolved = get_profile_config(profile_name, config)
+        _print_profile_config(profile_name, resolved, profile_name == get_active_profile_name(config))
+        return
+
+    upsert_profile_config(profile_name, updates, config)
+    click.echo(f"Updated profile {profile_name} in {USER_CONFIG_PATH}")
+
+
 @click.command("set-config")
+@click.argument("profile", required=False)
 @click.option("--as-user", default=None, help="Set the default nsec private key.")
 @click.option("--relays", default=None, help="Set the default relay URL or comma-separated relay pool.")
 @click.option("--kind", type=int, default=None, help="Set the default event kind.")
@@ -86,6 +317,7 @@ def init_config(force: bool) -> None:
 )
 @click.option("--authors", default=None, help="Validate one or more comma-separated npub values before saving.")
 def set_config(
+    profile: str | None,
     as_user: str | None,
     relays: str | None,
     kind: int | None,
@@ -95,44 +327,23 @@ def set_config(
     query_output: str | None,
     authors: str | None,
 ) -> None:
-    """Update values in ~/.openetr/config.yaml, or show them if no options are provided."""
-    updates = {}
-
-    if as_user is not None:
-        updates["as_user"] = resolve_keys(as_user).private_key_bech32()
-    if relays is not None:
-        updates["relays"] = _normalize_relays(relays)
-    if kind is not None:
-        updates["kind"] = kind
-    if query_timeout is not None:
-        updates["query_timeout"] = query_timeout
-    if publish_wait is not None:
-        updates["publish_wait"] = publish_wait
-    if limit is not None:
-        updates["limit"] = limit
-    if query_output is not None:
-        updates["query_output"] = query_output
-    if authors is not None:
-        parse_authors(authors)
-        updates["authors"] = [author.strip() for author in authors.split(",") if author.strip()]
-
-    if not updates:
-        stored_config = load_user_config()
-        if not stored_config:
-            click.echo(f"No stored config found at {USER_CONFIG_PATH}")
-            return
-
-        click.echo(f"Stored config at {USER_CONFIG_PATH}:")
-        for key, value in stored_config.items():
-            click.echo(f"  {key}: {value}")
-        return
-
-    upsert_user_config(updates)
-    click.echo(f"Updated config at {USER_CONFIG_PATH}")
+    """Update or show the active profile config."""
+    ctx = click.get_current_context()
+    ctx.invoke(
+        profile_set,
+        profile=profile,
+        as_user=as_user,
+        relays=relays,
+        kind=kind,
+        query_timeout=query_timeout,
+        publish_wait=publish_wait,
+        limit=limit,
+        query_output=query_output,
+        authors=authors,
+    )
 
 
-@click.command()
-@click.argument("name", required=False, default="world")
-def hello(name: str) -> None:
-    """Print a friendly greeting."""
-    click.echo(f"Hello, {name}.")
+@click.command("trivia")
+def trivia() -> None:
+    """Print a random MLETR fact."""
+    click.echo(f"MLETR trivia: {choice(_load_mletr_trivia_facts())}")

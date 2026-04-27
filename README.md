@@ -69,7 +69,11 @@ Integration patterns for systems such as decentralized networks and traditional 
 
 ## Specifications
 
-Draft specifications and supporting documents live in [docs/specs/INDEX.md](/Users/trbouma/projects/etrix/docs/specs/INDEX.md).
+Draft specifications and supporting documents live in [docs/specs/INDEX.md](docs/specs/INDEX.md).
+
+## Posts
+
+Long-form project writing and essay-style articles live in [docs/posts/INDEX.md](docs/posts/INDEX.md).
 
 ## Use Cases
 

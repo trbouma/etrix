@@ -14,6 +14,8 @@ from openetr.config import (
     DEFAULT_QUERY_OUTPUT,
     DEFAULT_QUERY_TIMEOUT,
     DEFAULT_RELAYS,
+    get_active_profile_name,
+    get_profile_config,
     USER_CONFIG_PATH,
     load_user_config,
 )
@@ -26,6 +28,62 @@ from openetr.helpers import (
     resolve_keys,
     resolve_query_digest,
 )
+
+
+async def _fetch_profile(
+    relays: str,
+    pubkey_hex: str,
+    timeout: int,
+    ssl_disable_verify: bool,
+) -> dict | None:
+    ssl = False if ssl_disable_verify else None
+
+    async with ClientPool(
+        relays.split(","),
+        query_timeout=timeout,
+        timeout=timeout,
+        ssl=ssl,
+    ) as client:
+        events = await client.query(
+            {
+                "authors": [pubkey_hex],
+                "kinds": [0],
+                "limit": 1,
+            },
+            emulate_single=True,
+            wait_connect=True,
+            timeout=timeout,
+        )
+
+    Event.sort(events, inplace=True, reverse=True)
+    if not events or not events[0].content:
+        return None
+
+    try:
+        profile = json.loads(events[0].content)
+    except json.JSONDecodeError:
+        return None
+
+    if not profile:
+        return None
+
+    return profile
+
+
+def _print_profile(profile: dict) -> None:
+    click.echo("profile:")
+    for field in ["name", "display_name", "about", "picture", "banner", "website", "nip05", "lud16", "lud06"]:
+        value = profile.get(field)
+        if value:
+            click.echo(f"  {field}: {value}")
+
+    remaining = {
+        key: value
+        for key, value in profile.items()
+        if key not in {"name", "display_name", "about", "picture", "banner", "website", "nip05", "lud16", "lud06"}
+    }
+    for key, value in remaining.items():
+        click.echo(f"  {key}: {value}")
 
 
 async def _run_query_object(
@@ -76,20 +134,27 @@ async def _run_query_object(
         d_values = evt.get_tags_value("d")
         o_values = evt.get_tags_value("o")
         click.echo(f"author: {format_pubkey(evt.pub_key)}")
+        profile = await _fetch_profile(
+            relays=relays,
+            pubkey_hex=evt.pub_key,
+            timeout=timeout,
+            ssl_disable_verify=ssl_disable_verify,
+        )
+        if profile:
+            _print_profile(profile)
         click.echo(f"d values: {[format_object_identifier(value) for value in d_values]}")
         click.echo(f"o values: {[format_object_identifier(value) for value in o_values]}")
         print_event(evt, output)
 
-
-def _resolve_profile_pubkey(author: str | None, as_user: str | None) -> str:
+def _resolve_profile_pubkey(profile: str, author: str | None, as_user: str | None) -> str:
     if author is not None:
         return resolve_author(author)
 
     if as_user is not None:
         return resolve_keys(as_user).public_key_hex()
 
-    user_config = load_user_config()
-    configured_key = user_config.get(CONFIG_AS_USER_KEY)
+    profile_config = get_profile_config(profile, load_user_config())
+    configured_key = profile_config.get(CONFIG_AS_USER_KEY)
     if configured_key:
         return resolve_keys(configured_key).public_key_hex()
 
@@ -115,60 +180,23 @@ async def _run_query_profile(
     click.echo(f"Pubkey:  {format_pubkey(pubkey_hex)}")
     click.echo(f"Relay filter: {query_filter}")
 
-    async with ClientPool(
-        relays.split(","),
-        query_timeout=timeout,
+    profile = await _fetch_profile(
+        relays=relays,
+        pubkey_hex=pubkey_hex,
         timeout=timeout,
-        ssl=ssl,
-    ) as client:
-        events = await client.query(
-            query_filter,
-            emulate_single=True,
-            wait_connect=True,
-            timeout=timeout,
-        )
+        ssl_disable_verify=ssl_disable_verify,
+    )
 
-    Event.sort(events, inplace=True, reverse=True)
-
-    if not events:
+    if not profile:
         click.echo("No kind 0 profile event found.")
         return
 
-    event = events[0]
-    click.echo(f"Found profile event: {event.id}")
-
-    if not event.content:
-        click.echo("Profile event has no content.")
-        return
-
-    try:
-        profile = json.loads(event.content)
-    except json.JSONDecodeError:
-        click.echo("Profile event content is not valid JSON.")
-        click.echo(event.content)
-        return
-
-    if not profile:
-        click.echo("Profile event content is empty.")
-        return
-
-    click.echo("Profile:")
-    for field in ["name", "display_name", "about", "picture", "banner", "website", "nip05", "lud16", "lud06"]:
-        value = profile.get(field)
-        if value:
-            click.echo(f"  {field}: {value}")
-
-    remaining = {
-        key: value
-        for key, value in profile.items()
-        if key not in {"name", "display_name", "about", "picture", "banner", "website", "nip05", "lud16", "lud06"}
-    }
-    for key, value in remaining.items():
-        click.echo(f"  {key}: {value}")
+    _print_profile(profile)
 
 
 @click.command("query-object")
-@click.option("--relays", default=DEFAULT_RELAYS, show_default=True, help="Comma separated relay URLs to query.")
+@click.option("--profile", default=None, help="Profile to use; defaults to the active profile.")
+@click.option("--relays", default=None, help="Comma separated relay URLs to query.")
 @click.option("--digest", default=None, help="nobj or 64-character hex digest to query for.")
 @click.option(
     "--digest-file",
@@ -184,51 +212,55 @@ async def _run_query_profile(
 @click.option(
     "--limit",
     type=int,
-    default=DEFAULT_LIMIT,
-    show_default=True,
+    default=None,
     help="Result limit.",
 )
 @click.option(
     "--timeout",
     type=int,
-    default=DEFAULT_QUERY_TIMEOUT,
-    show_default=True,
+    default=None,
     help="Query timeout in seconds.",
 )
 @click.option(
     "--output",
     type=click.Choice(["heads", "full", "raw", "tags"]),
-    default=DEFAULT_QUERY_OUTPUT,
-    show_default=True,
+    default=None,
     help="Output format.",
 )
 @click.option("--ssl-disable-verify", is_flag=True, help="Disable SSL certificate verification.")
 @click.option("--debug", is_flag=True, help="Enable debug logging.")
 def query_object(
-    relays: str,
+    profile: str | None,
+    relays: str | None,
     digest: str | None,
     digest_file: Path | None,
     authors: str | None,
-    limit: int,
-    timeout: int,
-    output: str,
+    limit: int | None,
+    timeout: int | None,
+    output: str | None,
     ssl_disable_verify: bool,
     debug: bool,
 ) -> None:
     """Query for replaceable kind 31415 events using the d tag value."""
     logging.getLogger().setLevel(logging.DEBUG if debug else logging.INFO)
 
+    profile_config = get_profile_config(profile or get_active_profile_name())
+    resolved_relays = relays or profile_config.get("relays", DEFAULT_RELAYS)
+    resolved_limit = limit if limit is not None else profile_config.get("limit", DEFAULT_LIMIT)
+    resolved_timeout = timeout if timeout is not None else profile_config.get("query_timeout", DEFAULT_QUERY_TIMEOUT)
+    resolved_output = output or profile_config.get("query_output", DEFAULT_QUERY_OUTPUT)
+
     resolved_digest, resolved_file = resolve_query_digest(digest, digest_file)
     parsed_authors = parse_authors(authors)
 
     asyncio.run(
         _run_query_object(
-            relays=relays,
+            relays=resolved_relays,
             digest=resolved_digest,
             authors=parsed_authors,
-            limit=limit,
-            timeout=timeout,
-            output=output,
+            limit=resolved_limit,
+            timeout=resolved_timeout,
+            output=resolved_output,
             ssl_disable_verify=ssl_disable_verify,
             digest_file=resolved_file,
         )
@@ -236,7 +268,8 @@ def query_object(
 
 
 @click.command("query-profile")
-@click.option("--relays", default=DEFAULT_RELAYS, show_default=True, help="Comma separated relay URLs to query.")
+@click.option("--profile", default=None, help="Profile to use; defaults to the active profile.")
+@click.option("--relays", default=None, help="Comma separated relay URLs to query.")
 @click.option(
     "--as-user",
     default=None,
@@ -250,29 +283,34 @@ def query_object(
 @click.option(
     "--timeout",
     type=int,
-    default=DEFAULT_QUERY_TIMEOUT,
-    show_default=True,
+    default=None,
     help="Query timeout in seconds.",
 )
 @click.option("--ssl-disable-verify", is_flag=True, help="Disable SSL certificate verification.")
 @click.option("--debug", is_flag=True, help="Enable debug logging.")
 def query_profile(
-    relays: str,
+    profile: str | None,
+    relays: str | None,
     as_user: str | None,
     author: str | None,
-    timeout: int,
+    timeout: int | None,
     ssl_disable_verify: bool,
     debug: bool,
 ) -> None:
     """Look up the Nostr kind 0 social profile for an npub, NIP-05 name, or nsec."""
     logging.getLogger().setLevel(logging.DEBUG if debug else logging.INFO)
 
-    pubkey_hex = _resolve_profile_pubkey(author, as_user)
+    profile_config = get_profile_config(profile or get_active_profile_name())
+    resolved_relays = relays or profile_config.get("relays", DEFAULT_RELAYS)
+    resolved_timeout = timeout if timeout is not None else profile_config.get("query_timeout", DEFAULT_QUERY_TIMEOUT)
+
+    profile_name = profile or get_active_profile_name()
+    pubkey_hex = _resolve_profile_pubkey(profile_name, author, as_user)
     asyncio.run(
         _run_query_profile(
-            relays=relays,
+            relays=resolved_relays,
             pubkey_hex=pubkey_hex,
-            timeout=timeout,
+            timeout=resolved_timeout,
             ssl_disable_verify=ssl_disable_verify,
         )
     )

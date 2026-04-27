@@ -5,7 +5,7 @@ description = "openetr - durable control portable records"
 authors = ["trbouma <trbouma@gmail.com>"]
 license = "MIT License"
 readme = "README.md"
-include = ["openetr/defaults.yaml"]
+include = ["openetr/defaults.yaml", "openetr/mletr_trivia.yaml"]
 
 [tool.poetry.dependencies]
 python = "^3.10"

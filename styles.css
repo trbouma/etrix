@@ -257,6 +257,58 @@ h1 {
   font-size: clamp(2.2rem, 5vw, 4.4rem);
 }
 
+.post-title {
+  font-size: clamp(2.6rem, 6vw, 5rem);
+  max-width: 14ch;
+}
+
+.post-body {
+  max-width: 52rem;
+  color: var(--ink);
+  font-size: 1.04rem;
+  line-height: 1.85;
+}
+
+.post-body > *:first-child {
+  margin-top: 0;
+}
+
+.post-body h2,
+.post-body h3 {
+  margin-top: 2rem;
+  margin-bottom: 0.85rem;
+}
+
+.post-body p,
+.post-body li {
+  color: var(--muted);
+}
+
+.post-body ul,
+.post-body ol {
+  padding-left: 1.25rem;
+}
+
+.post-body code {
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.35rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+}
+
+.post-body pre {
+  overflow-x: auto;
+  padding: 1rem 1.1rem;
+  border-radius: 1rem;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.24);
+}
+
+.post-body pre code {
+  padding: 0;
+  background: transparent;
+}
+
 .feature-grid,
 .pillars,
 .use-case-grid {
