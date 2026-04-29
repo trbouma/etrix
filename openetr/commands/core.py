@@ -7,6 +7,7 @@ from random import choice
 
 import click
 from monstr.client.client import ClientPool
+from monstr.encrypt import Keys
 from monstr.event.event import Event
 import yaml
 
@@ -108,11 +109,38 @@ def _profile_updates(
     return updates
 
 
+def _generated_profile_key_update(profile_exists: bool, as_user: str | None) -> dict:
+    if profile_exists or as_user is not None:
+        return {}
+
+    generated_keys = Keys()
+    return {CONFIG_AS_USER_KEY: generated_keys.private_key_bech32()}
+
+
 def _print_profile_config(profile: str, resolved: dict, is_active: bool) -> None:
     marker = " (active)" if is_active else ""
     click.echo(f"{profile}{marker}:")
     for key, value in resolved.items():
         click.echo(f"  {key}: {value}")
+
+
+def _profile_list_entries(config: dict, include_active: bool = True) -> list[str]:
+    active = get_active_profile_name(config)
+    profiles = list_profiles(config)
+    names = profiles if include_active else [name for name in profiles if name != active]
+    width = max((len(name) for name in names), default=0)
+    entries = []
+    for name in names:
+        marker = "*" if name == active else " "
+        profile_config = get_profile_config(name, config)
+        configured_key = profile_config.get(CONFIG_AS_USER_KEY)
+        label = f"{marker} {name:<{width}}".rstrip()
+        if configured_key:
+            npub = resolve_keys(configured_key).public_key_bech32()
+            entries.append(f"  {label}  {npub}")
+        else:
+            entries.append(f"  {label}")
+    return entries
 
 
 async def _fetch_kind0_profile(relays: str, pubkey_hex: str, timeout: int) -> dict | None:
@@ -150,6 +178,7 @@ def _print_social_profile(profile: dict) -> None:
         "name",
         "display_name",
         "about",
+        "address",
         "picture",
         "banner",
         "website",
@@ -309,13 +338,47 @@ def profile_group(ctx: click.Context) -> None:
 def profile_list() -> None:
     """List configured profiles."""
     config = load_user_config()
-    active = get_active_profile_name(config)
-    profiles = list_profiles(config)
-
     click.echo(f"Profiles in {USER_CONFIG_PATH}:")
-    for name in profiles:
-        marker = " *" if name == active else ""
-        click.echo(f"  {name}{marker}")
+    for entry in _profile_list_entries(config):
+        click.echo(entry)
+
+
+@click.command("whoami")
+def whoami() -> None:
+    """Show the active profile details and other profiles available to switch to."""
+    config = load_user_config()
+    active_profile = get_active_profile_name(config)
+    resolved = get_profile_config(active_profile, config)
+
+    click.echo("Current profile")
+    _print_profile_config(active_profile, resolved, True)
+
+    configured_key = resolved.get(CONFIG_AS_USER_KEY)
+    if configured_key:
+        pubkey_hex = resolve_keys(configured_key).public_key_hex()
+        click.echo(f"pubkey: {format_pubkey(pubkey_hex)}")
+        resolved_relays = resolved.get("relays", DEFAULT_RELAYS)
+        resolved_timeout = resolved.get("query_timeout", DEFAULT_QUERY_TIMEOUT)
+        social_profile = asyncio.run(
+            _fetch_kind0_profile(
+                relays=resolved_relays,
+                pubkey_hex=pubkey_hex,
+                timeout=resolved_timeout,
+            )
+        )
+        if social_profile:
+            _print_social_profile(social_profile)
+        else:
+            click.echo("social profile: none found")
+
+    other_profiles = _profile_list_entries(config, include_active=False)
+    click.echo("")
+    click.echo("Other profiles you can switch to:")
+    if other_profiles:
+        for entry in other_profiles:
+            click.echo(entry)
+    else:
+        click.echo("  none")
 
 
 @profile_group.command("show")
@@ -420,18 +483,28 @@ def profile_set(
         authors=authors,
         lei=lei,
     )
+    generated_key_update = _generated_profile_key_update(profile_exists, as_user)
 
     if not updates:
         if profile is not None and not profile_exists:
             config = ensure_profile(profile_name, config)
+            profile_values = config.setdefault(PROFILES_KEY, {}).setdefault(profile_name, {})
+            if generated_key_update:
+                profile_values.update(generated_key_update)
             write_user_config(config)
             click.echo(f"Created profile {profile_name} in {USER_CONFIG_PATH}")
+            if generated_key_update:
+                click.echo("Generated a new nsec for the profile.")
         resolved = get_profile_config(profile_name, config)
         _print_profile_config(profile_name, resolved, profile_name == get_active_profile_name(config))
         return
 
+    if generated_key_update:
+        updates.update(generated_key_update)
     upsert_profile_config(profile_name, updates, config)
     click.echo(f"Updated profile {profile_name} in {USER_CONFIG_PATH}")
+    if generated_key_update:
+        click.echo("Generated a new nsec for the profile.")
 
 
 @click.command("set-config")

@@ -2,6 +2,7 @@ from copy import deepcopy
 from importlib.resources import files
 from pathlib import Path
 
+import click
 import yaml
 
 PACKAGED_DEFAULTS_PATH = files("openetr").joinpath("defaults.yaml")
@@ -106,7 +107,10 @@ def list_profiles(config: dict | None = None) -> list[str]:
 def get_profile_config(profile: str | None = None, config: dict | None = None) -> dict:
     config = config or load_user_config()
     profile_name = profile or get_active_profile_name(config)
-    profile_values = config.get(PROFILES_KEY, {}).get(profile_name, {})
+    profiles = config.get(PROFILES_KEY, {})
+    if profile_name not in profiles:
+        raise click.ClickException(f"profile '{profile_name}' was not found in {USER_CONFIG_PATH}")
+    profile_values = profiles.get(profile_name, {})
 
     resolved = packaged_defaults()
     resolved.update(profile_values)

@@ -160,6 +160,8 @@ No counterparty acceptance is required in the canonical model, although an appli
 
 For the current OpenETR reference direction, canonical transaction families are split across distinct event kinds.
 
+The working registry for these assignments is maintained in [EVENT_KIND_REGISTRY.md](./EVENT_KIND_REGISTRY.md).
+
 Working allocation:
 
 - `31415` = origin event

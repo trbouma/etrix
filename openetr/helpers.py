@@ -16,6 +16,7 @@ from monstr.event.event import Event
 from openetr.config import DEFAULT_KIND
 
 NOBJ_PREFIX = "nobj"
+NEVENT_PREFIX = "nevent"
 GENERATE_LEI_SENTINEL = "__GENERATE_LEI__"
 
 
@@ -188,10 +189,67 @@ def normalize_object_identifier(identifier: str) -> str:
     return digest.lower()
 
 
+def assert_hex_object_identifier(value: str) -> str:
+    normalized = normalize_object_identifier(value)
+    if normalized != value:
+        raise click.ClickException("internal error: object identifier must be normalized to lowercase hex")
+    return value
+
+
+def assert_hex_pubkey(value: str) -> str:
+    if len(value) != 64:
+        raise click.ClickException("internal error: pubkey must be 64 hex characters")
+    try:
+        int(value, 16)
+    except ValueError as exc:
+        raise click.ClickException("internal error: pubkey must be hex") from exc
+    if value.lower() != value:
+        raise click.ClickException("internal error: pubkey must be normalized to lowercase hex")
+    return value
+
+
+def normalize_event_reference(identifier: str) -> str:
+    if identifier.startswith(NEVENT_PREFIX):
+        hrp, data = bech32.bech32_decode(identifier)
+        if hrp != NEVENT_PREFIX or data is None:
+            raise click.ClickException("event reference must be a valid nevent value")
+
+        as_bytes = bech32.convertbits(data, 5, 8, False)
+        if as_bytes is None:
+            raise click.ClickException("event reference must be a valid nevent value")
+
+        event_id = "".join(f"{part:02x}" for part in as_bytes)
+    else:
+        event_id = identifier
+
+    if len(event_id) != 64:
+        raise click.ClickException("event reference must be exactly 64 hex characters or a valid nevent")
+
+    try:
+        int(event_id, 16)
+    except ValueError as exc:
+        raise click.ClickException("event reference must be valid hex or a valid nevent") from exc
+
+    return event_id.lower()
+
+
+def assert_hex_event_id(value: str) -> str:
+    normalized = normalize_event_reference(value)
+    if normalized != value:
+        raise click.ClickException("internal error: event id must be normalized to lowercase hex")
+    return value
+
+
 def format_object_identifier(digest_hex: str, prefix: str = NOBJ_PREFIX) -> str:
     as_int = [int(digest_hex[i:i + 2], 16) for i in range(0, len(digest_hex), 2)]
     data = bech32.convertbits(as_int, 8, 5)
     return bech32.bech32_encode(prefix, data)
+
+
+def format_event_reference(event_id_hex: str, prefix: str = NEVENT_PREFIX) -> str:
+    as_int = [int(event_id_hex[i:i + 2], 16) for i in range(0, len(event_id_hex), 2)]
+    data = bech32.convertbits(as_int, 8, 5)
+    return bech32.bech32_encode(NEVENT_PREFIX, data)
 
 
 def resolve_query_digest(

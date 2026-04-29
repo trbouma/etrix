@@ -23,13 +23,34 @@ from openetr.config import (
 )
 from openetr.helpers import (
     GENERATE_LEI_SENTINEL,
+    assert_hex_event_id,
+    assert_hex_object_identifier,
+    assert_hex_pubkey,
     build_comment,
     build_digest,
     format_object_identifier,
     format_pubkey,
+    normalize_event_reference,
+    parse_authors,
     resolve_keys,
     resolve_lei,
 )
+
+CONTROL_TRANSFER_KIND = 31416
+
+
+def _split_relays(relays: str) -> list[str]:
+    return [relay.strip() for relay in relays.split(",") if relay.strip()]
+
+
+def _normalize_verify_value(verify: str) -> str:
+    value = verify.strip()
+    lowered = value.lower()
+    if lowered in {"any", "majority", "all"}:
+        return lowered
+    if not lowered.startswith(("wss://", "ws://")):
+        return f"wss://{value}"
+    return value
 
 
 async def _run_publish_object(
@@ -41,8 +62,11 @@ async def _run_publish_object(
     query_timeout: int,
     limit: int,
     digest_file: Path | None,
+    display_hex_tags: bool = False,
 ) -> None:
     ok_results = []
+    assert_hex_object_identifier(digest)
+    assert_hex_pubkey(as_user.public_key_hex())
 
     def on_ok(the_client, event_id: str, success: bool, message: str) -> None:
         ok_results.append(
@@ -67,8 +91,8 @@ async def _run_publish_object(
     click.echo(f"Event ID:{event.id}")
     click.echo(f"Object:  {format_object_identifier(digest)}")
     click.echo(f"Kind:    {event.kind}")
-    click.echo(f"d tag:   {format_object_identifier(digest)}")
-    click.echo(f"o tag:   {format_object_identifier(digest)}")
+    click.echo(f"d tag:   {digest if display_hex_tags else format_object_identifier(digest)}")
+    click.echo(f"o tag:   {digest if display_hex_tags else format_object_identifier(digest)}")
     if digest_file is not None:
         click.echo(f"Source:  sha256({digest_file})")
     click.echo(f"Content: {event.content}")
@@ -143,7 +167,7 @@ async def _run_publish_object(
             f"event_id={last_ok['event_id']} message={last_ok['message']}"
         )
     else:
-        click.echo("No OK message was observed from the relay before the script exited.")
+        click.echo("No relay OK message was observed before the command exited; the event may still have been accepted.")
 
 
 async def _find_existing_object_records(
@@ -153,6 +177,8 @@ async def _find_existing_object_records(
     query_timeout: int,
     limit: int,
 ) -> list[Event]:
+    assert_hex_object_identifier(digest)
+    assert_hex_pubkey(pubkey_hex)
     async with ClientPool(
         relays.split(","),
         timeout=query_timeout,
@@ -163,6 +189,35 @@ async def _find_existing_object_records(
                 "authors": [pubkey_hex],
                 "kinds": [DEFAULT_KIND],
                 "#d": [digest],
+                "limit": limit,
+            },
+            emulate_single=True,
+            wait_connect=True,
+            timeout=query_timeout,
+        )
+
+    Event.sort(events, inplace=True, reverse=True)
+    return events
+
+
+async def _find_existing_transfer_records(
+    relays: str,
+    d_value: str,
+    pubkey_hex: str,
+    query_timeout: int,
+    limit: int,
+) -> list[Event]:
+    assert_hex_pubkey(pubkey_hex)
+    async with ClientPool(
+        relays.split(","),
+        timeout=query_timeout,
+        query_timeout=query_timeout,
+    ) as client:
+        events = await client.query(
+            {
+                "authors": [pubkey_hex],
+                "kinds": [CONTROL_TRANSFER_KIND],
+                "#d": [d_value],
                 "limit": limit,
             },
             emulate_single=True,
@@ -203,6 +258,267 @@ async def _fetch_current_profile(
         return json.loads(events[0].content)
     except json.JSONDecodeError:
         return {}
+
+
+async def _fetch_event_by_id(
+    relays: str,
+    event_id_hex: str,
+    query_timeout: int,
+) -> Event | None:
+    assert_hex_event_id(event_id_hex)
+    async with ClientPool(
+        relays.split(","),
+        timeout=query_timeout,
+        query_timeout=query_timeout,
+    ) as client:
+        events = await client.query(
+            {
+                "ids": [event_id_hex],
+                "limit": 1,
+            },
+            emulate_single=True,
+            wait_connect=True,
+            timeout=query_timeout,
+        )
+
+    if not events:
+        return None
+
+    Event.sort(events, inplace=True, reverse=True)
+    return events[0]
+
+
+def _event_tag_value(event: Event, tag_name: str) -> str | None:
+    values = event.get_tags_value(tag_name)
+    return values[0] if values else None
+
+
+def _derive_origin_object_digest(origin_event: Event) -> str:
+    if origin_event.kind != DEFAULT_KIND:
+        raise click.ClickException(f"referenced origin event must be kind {DEFAULT_KIND}")
+
+    digest = _event_tag_value(origin_event, "o") or _event_tag_value(origin_event, "d")
+    if digest is None:
+        raise click.ClickException("referenced origin event does not contain an object identifier in o or d")
+    return assert_hex_object_identifier(digest)
+
+
+async def _resolve_origin_from_prior_event(
+    relays: str,
+    prior_event_id_hex: str,
+    query_timeout: int,
+) -> tuple[Event, Event]:
+    starting_event = await _fetch_event_by_id(
+        relays=relays,
+        event_id_hex=prior_event_id_hex,
+        query_timeout=query_timeout,
+    )
+    if starting_event is None:
+        raise click.ClickException("prior event could not be found on the configured relays")
+    if starting_event.kind not in {DEFAULT_KIND, CONTROL_TRANSFER_KIND}:
+        raise click.ClickException(
+            f"prior event must be kind {DEFAULT_KIND} (origin) or {CONTROL_TRANSFER_KIND} (control transfer)"
+        )
+
+    current_event = starting_event
+    visited_ids = set()
+    while True:
+        if current_event.id in visited_ids:
+            raise click.ClickException("prior event chain contains a cycle and could not be resolved to origin")
+        visited_ids.add(current_event.id)
+
+        if current_event.kind == DEFAULT_KIND:
+            return current_event, starting_event
+
+        if current_event.kind != CONTROL_TRANSFER_KIND:
+            raise click.ClickException(
+                f"prior event chain must terminate in kind {DEFAULT_KIND} and may only traverse kind {CONTROL_TRANSFER_KIND} events"
+            )
+
+        previous_event_id = _event_tag_value(current_event, "e")
+        if previous_event_id is None:
+            raise click.ClickException(
+                "prior transfer event does not reference an earlier event in its e tag"
+            )
+        previous_event_id = assert_hex_event_id(previous_event_id)
+
+        previous_event = await _fetch_event_by_id(
+            relays=relays,
+            event_id_hex=previous_event_id,
+            query_timeout=query_timeout,
+        )
+        if previous_event is None:
+            raise click.ClickException(
+                "prior transfer event could not be traversed back to an origin event"
+            )
+
+        current_event = previous_event
+
+
+async def _run_publish_transfer_event(
+    relays: str,
+    event: Event,
+    publish_wait: float,
+    query_timeout: int,
+    verify: str,
+) -> None:
+    indexing_retry_attempts = 3
+    indexing_retry_delay_seconds = 2.0
+    ok_results = []
+
+    def on_ok(the_client, event_id: str, success: bool, message: str) -> None:
+        ok_results.append(
+            {
+                "event_id": event_id,
+                "success": success,
+                "message": message,
+            }
+        )
+        click.echo(f"OK from relay for {event_id}: success={success} message={message}")
+
+    click.echo(f"Relays:  {relays}")
+    click.echo(f"Pubkey:  {format_pubkey(event.pub_key)}")
+    click.echo(f"Event ID:{event.id}")
+    click.echo(f"Kind:    {event.kind}")
+    click.echo("Tags:")
+    for tag in event.tags:
+        click.echo(f"  {tag}")
+    click.echo(f"Content: {event.content}")
+    click.echo(f"Verify:  {verify}")
+    click.echo()
+
+    relay_list = _split_relays(relays)
+    async with ClientPool(
+        relay_list,
+        on_ok=on_ok,
+        timeout=query_timeout,
+        query_timeout=query_timeout,
+    ) as client:
+        click.echo("Publishing transfer event...")
+        client.publish(event)
+
+        if publish_wait > 0:
+            click.echo(f"Waiting {publish_wait:.1f}s for relay indexing...")
+            await asyncio.sleep(publish_wait)
+
+    normalized_verify = _normalize_verify_value(verify)
+    if normalized_verify in {"any", "majority", "all"}:
+        verify_relays = relay_list
+    else:
+        verify_relays = [normalized_verify]
+
+    d_value = _event_tag_value(event, "d")
+    o_value = _event_tag_value(event, "o")
+    fallback_filter = {
+        "authors": [assert_hex_pubkey(event.pub_key)],
+        "kinds": [event.kind],
+        "limit": 10,
+    }
+    if d_value is not None:
+        fallback_filter["#d"] = [d_value]
+    if o_value is not None:
+        fallback_filter["#o"] = [assert_hex_object_identifier(o_value)]
+
+    verification_results: dict[str, list[Event]] = {}
+    for attempt in range(1, indexing_retry_attempts + 1):
+        verification_results = {}
+        exact_count = 0
+        slot_count = 0
+
+        for relay in verify_relays:
+            async with ClientPool(
+                [relay],
+                timeout=query_timeout,
+                query_timeout=query_timeout,
+            ) as verify_client:
+                relay_events = await verify_client.query(
+                    {
+                        "ids": [event.id],
+                        "limit": 1,
+                    },
+                    emulate_single=True,
+                    wait_connect=True,
+                    timeout=query_timeout,
+                )
+                if not relay_events:
+                    relay_events = await verify_client.query(
+                        fallback_filter,
+                        emulate_single=True,
+                        wait_connect=True,
+                        timeout=query_timeout,
+                    )
+
+            Event.sort(relay_events, inplace=True, reverse=True)
+            verification_results[relay] = relay_events
+            if relay_events:
+                slot_count += 1
+            if any(found.id == event.id for found in relay_events):
+                exact_count += 1
+
+        total_relays = len(verify_relays)
+        majority_threshold = (total_relays // 2) + 1
+        if normalized_verify == "any" and exact_count >= 1:
+            break
+        if normalized_verify == "majority" and exact_count >= majority_threshold:
+            break
+        if normalized_verify == "all" and exact_count == total_relays:
+            break
+        if normalized_verify not in {"any", "majority", "all"} and exact_count == 1:
+            break
+
+        if attempt < indexing_retry_attempts:
+            click.echo(
+                f"Relay indexing advisory: {exact_count} of {total_relays} verification target(s) "
+                f"currently show the exact transfer event; waiting {indexing_retry_delay_seconds:.1f}s "
+                f"before retry {attempt + 1} of {indexing_retry_attempts}..."
+            )
+            await asyncio.sleep(indexing_retry_delay_seconds)
+
+    exact_relays = [relay for relay, events in verification_results.items() if any(found.id == event.id for found in events)]
+    slot_relays = [relay for relay, events in verification_results.items() if events]
+    total_relays = len(verify_relays)
+    majority_threshold = (total_relays // 2) + 1
+
+    click.echo()
+    click.echo(
+        f"Verification summary: exact={len(exact_relays)}/{total_relays} "
+        f"slot={len(slot_relays)}/{total_relays}"
+    )
+    if normalized_verify == "any":
+        pass_condition = len(exact_relays) >= 1
+    elif normalized_verify == "majority":
+        pass_condition = len(exact_relays) >= majority_threshold
+    elif normalized_verify == "all":
+        pass_condition = len(exact_relays) == total_relays
+    else:
+        pass_condition = len(exact_relays) == 1
+
+    if pass_condition:
+        click.echo("PASS: transfer verification requirement was satisfied.")
+    elif slot_relays:
+        click.echo("PARTIAL: transfer verification found the replaceable transfer slot, but not enough exact event matches.")
+        click.echo(f"Published event id: {event.id}")
+        for relay in verify_relays:
+            relay_events = verification_results.get(relay, [])
+            if relay_events:
+                latest = relay_events[0]
+                click.echo(f"Relay: {relay}")
+                click.echo(f"  returned event id: {latest.id}")
+                click.echo(f"  returned created_at: {latest.created_at}")
+            else:
+                click.echo(f"Relay: {relay}")
+                click.echo("  returned event id: none")
+    else:
+        click.echo("FAIL: no transfer event was returned after publish.")
+
+    if ok_results:
+        last_ok = ok_results[-1]
+        click.echo(
+            f"Last OK status: success={last_ok['success']} "
+            f"event_id={last_ok['event_id']} message={last_ok['message']}"
+        )
+    else:
+        click.echo("No relay OK message was observed before the command exited; the event may still have been accepted.")
 
 
 async def _run_publish_profile(
@@ -285,17 +601,33 @@ async def _run_publish_profile(
             f"event_id={last_ok['event_id']} message={last_ok['message']}"
         )
     else:
-        click.echo("No OK message was observed from the relay before the command exited.")
+        click.echo("No relay OK message was observed before the command exited; the event may still have been accepted.")
 
 
-def _resolve_publish_key(profile: str, as_user: str | None) -> Keys:
-    if as_user is not None:
-        keys = resolve_keys(as_user)
-        upsert_profile_config(profile, {CONFIG_AS_USER_KEY: keys.private_key_bech32()})
-        return keys
-
+def _resolve_publish_key(profile: str, as_user: str | None, force: bool) -> Keys:
     profile_config = get_profile_config(profile, load_user_config())
     configured_key = profile_config.get(CONFIG_AS_USER_KEY)
+
+    if as_user is not None:
+        keys = resolve_keys(as_user)
+        if configured_key:
+            configured_keys = resolve_keys(configured_key)
+            if configured_keys.public_key_hex() != keys.public_key_hex() and not force:
+                click.secho(
+                    "WARNING: this command is using a temporary identity that differs from the current profile.",
+                    fg="yellow",
+                    bold=True,
+                )
+                click.echo(f"Profile:          {profile}")
+                click.echo(f"Profile signer:   {configured_keys.public_key_bech32()}")
+                click.echo(f"Temporary signer: {keys.public_key_bech32()}")
+                click.confirm(
+                    click.style("Continue with the temporary identity override?", fg="yellow", bold=True),
+                    default=False,
+                    abort=True,
+                )
+        return keys
+
     if configured_key:
         return resolve_keys(configured_key)
 
@@ -315,6 +647,7 @@ def _profile_updates(
     name: str | None,
     display_name: str | None,
     about: str | None,
+    address: str | None,
     picture: str | None,
     banner: str | None,
     website: str | None,
@@ -330,6 +663,8 @@ def _profile_updates(
         updates["display_name"] = display_name
     if about is not None:
         updates["about"] = about
+    if address is not None:
+        updates["address"] = address
     if picture is not None:
         updates["picture"] = picture
     if banner is not None:
@@ -366,6 +701,7 @@ def _profile_updates(
     default=None,
     help="nsec private key to publish with; loaded from config or generated if omitted.",
 )
+@click.option("--force", is_flag=True, help="Suppress confirmation prompts.")
 @click.option(
     "--comment",
     default=None,
@@ -396,6 +732,7 @@ def publish_object(
     digest: str | None,
     digest_file: Path | None,
     as_user: str | None,
+    force: bool,
     comment: str | None,
     publish_wait: float | None,
     query_timeout: int | None,
@@ -412,7 +749,7 @@ def publish_object(
     resolved_query_timeout = query_timeout if query_timeout is not None else profile_config.get("query_timeout", DEFAULT_QUERY_TIMEOUT)
     resolved_limit = limit if limit is not None else profile_config.get("limit", DEFAULT_LIMIT)
 
-    keys = _resolve_publish_key(profile_name, as_user)
+    keys = _resolve_publish_key(profile_name, as_user, force)
     resolved_digest, generated_at, resolved_file, file_size = build_digest(
         digest=digest,
         digest_file=str(digest_file) if digest_file is not None else None,
@@ -436,6 +773,7 @@ def publish_object(
             query_timeout=resolved_query_timeout,
             limit=resolved_limit,
             digest_file=resolved_file,
+            display_hex_tags=False,
         )
     )
 
@@ -459,6 +797,7 @@ def publish_object(
     default=None,
     help="nsec private key to publish with; loaded from config or generated if omitted.",
 )
+@click.option("--force", is_flag=True, help="Suppress confirmation prompts.")
 @click.option(
     "--comment",
     default=None,
@@ -489,6 +828,7 @@ def issue_etr(
     digest: str | None,
     digest_file: Path | None,
     as_user: str | None,
+    force: bool,
     comment: str | None,
     publish_wait: float | None,
     query_timeout: int | None,
@@ -509,7 +849,7 @@ def issue_etr(
     )
     resolved_limit = limit if limit is not None else profile_config.get("limit", DEFAULT_LIMIT)
 
-    keys = _resolve_publish_key(profile_name, as_user)
+    keys = _resolve_publish_key(profile_name, as_user, force)
     resolved_digest, generated_at, resolved_file, file_size = build_digest(
         digest=digest,
         digest_file=str(digest_file) if digest_file is not None else None,
@@ -558,8 +898,239 @@ def issue_etr(
             query_timeout=resolved_query_timeout,
             limit=resolved_limit,
             digest_file=resolved_file,
+            display_hex_tags=True,
         )
     )
+
+
+@click.group("transfer")
+def transfer_group() -> None:
+    """Create control transfer events."""
+
+
+@transfer_group.command("initiate")
+@click.option("--profile", default=None, help="Profile to use; defaults to the active profile.")
+@click.option("--relays", default=None, help="Comma separated relay URLs to use.")
+@click.option(
+    "--prior-event",
+    required=True,
+    help="Prior event id in hex or simple nevent form; may be the origin event or a prior transfer event.",
+)
+@click.option(
+    "--transferee",
+    required=True,
+    help="Transferee npub to reference in the transfer initiate event.",
+)
+@click.option(
+    "--as-user",
+    default=None,
+    help="nsec private key to publish with; loaded from config or generated if omitted.",
+)
+@click.option(
+    "--comment",
+    default=None,
+    help="Optional event content. If omitted, a descriptive transfer-initiation comment is generated.",
+)
+@click.option("--publish-wait", type=float, default=None, help="Seconds to wait after publish before querying.")
+@click.option("--query-timeout", type=int, default=None, help="Seconds to wait for the query to complete.")
+@click.option("--limit", type=int, default=None, help="Query result limit.")
+@click.option(
+    "--verify",
+    default="any",
+    help="Verification mode after publish: any, majority, all, or a specific relay URL.",
+)
+@click.option("--debug", is_flag=True, help="Enable debug logging.")
+def transfer_initiate(
+    profile: str | None,
+    relays: str | None,
+    prior_event: str,
+    transferee: str,
+    as_user: str | None,
+    force: bool,
+    comment: str | None,
+    publish_wait: float | None,
+    query_timeout: int | None,
+    limit: int | None,
+    verify: str,
+    debug: bool,
+) -> None:
+    """Initiate a control transfer from an origin or prior transfer event."""
+    logging.getLogger().setLevel(logging.DEBUG if debug else logging.INFO)
+
+    profile_name = profile or get_active_profile_name()
+    profile_config = get_profile_config(profile_name)
+    resolved_relays = relays or profile_config.get("relays", DEFAULT_RELAYS)
+    resolved_publish_wait = (
+        publish_wait if publish_wait is not None else profile_config.get("publish_wait", DEFAULT_PUBLISH_WAIT)
+    )
+    resolved_query_timeout = (
+        query_timeout if query_timeout is not None else profile_config.get("query_timeout", DEFAULT_QUERY_TIMEOUT)
+    )
+    resolved_limit = limit if limit is not None else profile_config.get("limit", DEFAULT_LIMIT)
+
+    keys = _resolve_publish_key(profile_name, as_user, force)
+    prior_event_id = normalize_event_reference(prior_event)
+    transferee_hex = parse_authors(transferee)
+    if not transferee_hex:
+        raise click.ClickException("transferee must resolve to a valid npub")
+    transferee_pubkey_hex = transferee_hex[0]
+
+    async def _publish() -> None:
+        resolved_origin, referenced_event = await _resolve_origin_from_prior_event(
+            relays=resolved_relays,
+            prior_event_id_hex=prior_event_id,
+            query_timeout=resolved_query_timeout,
+        )
+
+        object_digest = _derive_origin_object_digest(resolved_origin)
+        author_pubkey_hex = assert_hex_pubkey(keys.public_key_hex())
+        d_value = f"{object_digest}:initiate"
+        resolved_comment = comment or (
+            "transfer initiate; "
+            f"object={format_object_identifier(object_digest)}; "
+            f"prior_event={referenced_event.id}; "
+            f"origin_event={resolved_origin.id}; "
+            f"transferee={format_pubkey(transferee_pubkey_hex)}; "
+            f"initiator={format_pubkey(author_pubkey_hex)}"
+        )
+        existing_events = await _find_existing_transfer_records(
+            relays=resolved_relays,
+            d_value=d_value,
+            pubkey_hex=author_pubkey_hex,
+            query_timeout=resolved_query_timeout,
+            limit=resolved_limit,
+        )
+        if existing_events:
+            latest = existing_events[0]
+            click.secho(
+                "WARNING: a transfer initiate event already exists for this author and object; "
+                "you may be overwriting an existing replaceable transfer record.",
+                fg="yellow",
+                bold=True,
+            )
+            click.echo(f"Existing event: {latest.id}")
+            click.echo(f"Object:         {format_object_identifier(object_digest)}")
+            click.confirm(
+                click.style("Continue publishing this transfer initiate event?", fg="yellow", bold=True),
+                default=False,
+                abort=True,
+            )
+        event = Event(
+            kind=CONTROL_TRANSFER_KIND,
+            content=resolved_comment,
+            pub_key=author_pubkey_hex,
+            tags=[
+                ["d", d_value],
+                ["o", object_digest],
+                ["e", referenced_event.id],
+                ["origin", resolved_origin.id],
+                ["p", transferee_pubkey_hex],
+                ["action", "initiate"],
+            ],
+        )
+        event.sign(keys.private_key_hex())
+        await _run_publish_transfer_event(
+            relays=resolved_relays,
+            event=event,
+            publish_wait=resolved_publish_wait,
+            query_timeout=resolved_query_timeout,
+            verify=verify,
+        )
+
+    asyncio.run(_publish())
+
+
+@transfer_group.command("accept")
+@click.option("--profile", default=None, help="Profile to use; defaults to the active profile.")
+@click.option("--relays", default=None, help="Comma separated relay URLs to use.")
+@click.option(
+    "--initiate-event",
+    required=True,
+    help="Transfer initiate event id in hex or simple nevent form.",
+)
+@click.option(
+    "--as-user",
+    default=None,
+    help="nsec private key to publish with; loaded from config or generated if omitted.",
+)
+@click.option("--force", is_flag=True, help="Suppress confirmation prompts.")
+@click.option("--comment", default="", help="Optional event content.")
+@click.option("--publish-wait", type=float, default=None, help="Seconds to wait after publish before querying.")
+@click.option("--query-timeout", type=int, default=None, help="Seconds to wait for the query to complete.")
+@click.option(
+    "--verify",
+    default="any",
+    help="Verification mode after publish: any, majority, all, or a specific relay URL.",
+)
+@click.option("--debug", is_flag=True, help="Enable debug logging.")
+def transfer_accept(
+    profile: str | None,
+    relays: str | None,
+    initiate_event: str,
+    as_user: str | None,
+    force: bool,
+    comment: str,
+    publish_wait: float | None,
+    query_timeout: int | None,
+    verify: str,
+    debug: bool,
+) -> None:
+    """Accept a previously initiated control transfer."""
+    logging.getLogger().setLevel(logging.DEBUG if debug else logging.INFO)
+
+    profile_name = profile or get_active_profile_name()
+    profile_config = get_profile_config(profile_name)
+    resolved_relays = relays or profile_config.get("relays", DEFAULT_RELAYS)
+    resolved_publish_wait = (
+        publish_wait if publish_wait is not None else profile_config.get("publish_wait", DEFAULT_PUBLISH_WAIT)
+    )
+    resolved_query_timeout = (
+        query_timeout if query_timeout is not None else profile_config.get("query_timeout", DEFAULT_QUERY_TIMEOUT)
+    )
+
+    keys = _resolve_publish_key(profile_name, as_user, force)
+    initiate_event_id = normalize_event_reference(initiate_event)
+
+    async def _publish() -> None:
+        initiate = await _fetch_event_by_id(
+            relays=resolved_relays,
+            event_id_hex=initiate_event_id,
+            query_timeout=resolved_query_timeout,
+        )
+        if initiate is None:
+            raise click.ClickException("transfer initiate event could not be found on the configured relays")
+        if initiate.kind != CONTROL_TRANSFER_KIND:
+            raise click.ClickException(f"referenced initiate event must be kind {CONTROL_TRANSFER_KIND}")
+
+        object_digest = _event_tag_value(initiate, "o")
+        if object_digest is None:
+            raise click.ClickException("referenced initiate event does not contain an o tag")
+        object_digest = assert_hex_object_identifier(object_digest)
+
+        author_pubkey_hex = assert_hex_pubkey(keys.public_key_hex())
+        d_value = f"{object_digest}:accept"
+        event = Event(
+            kind=CONTROL_TRANSFER_KIND,
+            content=comment,
+            pub_key=author_pubkey_hex,
+            tags=[
+                ["d", d_value],
+                ["o", object_digest],
+                ["e", initiate_event_id],
+                ["p", initiate.pub_key],
+                ["action", "accept"],
+            ],
+        )
+        event.sign(keys.private_key_hex())
+        await _run_publish_transfer_event(
+            relays=resolved_relays,
+            event=event,
+            publish_wait=resolved_publish_wait,
+            query_timeout=resolved_query_timeout,
+            verify=verify,
+        )
+
+    asyncio.run(_publish())
 
 
 @click.command("publish-profile")
@@ -570,9 +1141,11 @@ def issue_etr(
     default=None,
     help="nsec private key to publish with; loaded from config or generated if omitted.",
 )
+@click.option("--force", is_flag=True, help="Suppress confirmation prompts.")
 @click.option("--name", default=None, help="Profile name.")
 @click.option("--display-name", default=None, help="Profile display_name.")
 @click.option("--about", default=None, help="Profile about text.")
+@click.option("--address", default=None, help="Profile address.")
 @click.option("--picture", default=None, help="Profile picture URL.")
 @click.option("--banner", default=None, help="Profile banner image URL.")
 @click.option("--website", default=None, help="Profile website URL.")
@@ -603,9 +1176,11 @@ def publish_profile(
     profile: str | None,
     relays: str | None,
     as_user: str | None,
+    force: bool,
     name: str | None,
     display_name: str | None,
     about: str | None,
+    address: str | None,
     picture: str | None,
     banner: str | None,
     website: str | None,
@@ -625,6 +1200,7 @@ def publish_profile(
         name=name,
         display_name=display_name,
         about=about,
+        address=address,
         picture=picture,
         banner=banner,
         website=website,
@@ -642,7 +1218,7 @@ def publish_profile(
     resolved_publish_wait = publish_wait if publish_wait is not None else profile_config.get("publish_wait", DEFAULT_PUBLISH_WAIT)
     resolved_query_timeout = query_timeout if query_timeout is not None else profile_config.get("query_timeout", DEFAULT_QUERY_TIMEOUT)
 
-    keys = _resolve_publish_key(profile_name, as_user)
+    keys = _resolve_publish_key(profile_name, as_user, force)
 
     async def _publish() -> None:
         current_profile = {} if replace else await _fetch_current_profile(
