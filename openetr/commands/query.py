@@ -517,18 +517,18 @@ async def _run_query_etr(
     async def _print_summary_control_chain() -> None:
         click.echo()
         click.echo("summary control chain:")
+        click.echo("  legend: ++ origin, -> transfer initiate/accept, -- terminate, => attest initiate/accept")
         issuer_profile = await _cached_profile(initial_event.pub_key)
         issuer_label = _profile_chain_label(initial_event.pub_key, issuer_profile)
         origin_date = _format_event_date_compact(initial_event.created_at)
         if not transfer_events:
-            click.echo(f"  origin/31415/{origin_date}:{issuer_label}")
+            click.echo(f"  ++ origin/{origin_date}:{issuer_label}")
             return
 
         for group_index, root_evt in enumerate(roots, start=1):
             root_paths = await _chain_paths_from_event(root_evt)
             for path_index, event_path in enumerate(root_paths, start=1):
-                labels = []
-                labels.append(f"origin/31415/{origin_date}:{issuer_label}")
+                labels = [f"origin/{origin_date}:{issuer_label}"]
                 previous_event = initial_event
                 previous_controller_pubkey_hex = initial_event.pub_key
                 for evt in event_path:
@@ -538,13 +538,18 @@ async def _run_query_etr(
                         continue
                     label = _profile_chain_label(transferee_pubkey_hex, await _cached_profile(transferee_pubkey_hex))
                     elapsed = _format_elapsed_compact(previous_event.created_at, evt.created_at)
-                    labels.append(f"transfer/31416/{elapsed}:{label}")
+                    labels.append(f"transfer initiate/{elapsed}:{label}")
                     previous_event = evt
                     previous_controller_pubkey_hex = transferee_pubkey_hex
-                prefix = f"  group {group_index}"
+                prefix = f"  control chain {group_index}"
                 if len(root_paths) > 1:
                     prefix = f"{prefix}.{path_index}"
-                click.echo(f"{prefix}: {' -> '.join(labels)}")
+                click.echo(f"{prefix}:")
+                for label_index, label in enumerate(labels):
+                    if label_index == 0:
+                        click.echo(f"    ++ {label}")
+                    else:
+                        click.echo(f"    -> {label}")
 
     async def _print_transfer_event(evt: Event, row_label: str, depth: int) -> None:
         indent = "  " * depth

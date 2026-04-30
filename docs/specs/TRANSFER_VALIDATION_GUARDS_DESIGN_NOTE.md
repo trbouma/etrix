@@ -6,6 +6,14 @@ It is not a claim that OpenETR can prevent all invalid or conflicting events fro
 
 Instead, it defines why local validation rules still matter and how they can serve as an early expression of the policy that future attestors may apply before recognizing or attesting control-relevant events.
 
+An underlying philosophy of the OpenETR protocol is:
+
+> Transact globally, validate locally.
+
+This is a deliberate play on "think globally, act locally."
+
+OpenETR allows parties to publish and exchange control-relevant events in a shared global environment, while leaving validation, attestation, and recognition to the local policy of the party who must decide whether to rely on the resulting chain.
+
 ## Status
 
 Draft.
@@ -31,6 +39,27 @@ Validation guards in the CLI are useful because they:
 - reduce accidental misuse by ordinary operators
 - provide a practical reference implementation of OpenETR policy
 - create an early executable model of the checks that attestors may later apply before attesting events
+
+## Historical Context
+
+OpenETR can also be understood against the background of global shipping and the historical ethos of the high seas.
+
+Maritime trade developed across jurisdictions long before any single sovereign could govern global trade end to end.
+
+Commerce at sea therefore depended on records, customs, and recognition practices that could travel across ports, carriers, merchants, financiers, and legal systems.
+
+The high seas were not the domain of any one platform or any one legal authority.
+
+What mattered was whether a record, claim, or act would be recognized by the party who needed to rely on it.
+
+In that sense, OpenETR is an attempt to replicate digitally some of the same operating ethos:
+
+- publication in a shared global environment
+- movement across institutional and jurisdictional boundaries
+- reliance on signed and reviewable evidence
+- recognition by the relevant relying party rather than by a single controlling system
+
+Just as maritime trade evolved to function across open waters and multiple jurisdictions, OpenETR is designed to function across an open digital environment where publication is global but recognition remains local.
 
 ## Core Distinction
 
@@ -213,6 +242,12 @@ It does not by itself determine their final legal or operational effect.
 
 Recognition remains a matter for the party applying the relevant assessment or attestation policy.
 
+This also means that more than one candidate control chain may appear for the same object.
+
+OpenETR does not necessarily prevent conflicting or competing control histories from being published.
+
+Instead, it makes those histories visible as signed evidence so that the relevant assessor, attestor, or relying party can decide which chain, if any, should be recognized under the applicable policy.
+
 This preserves a useful distinction between:
 
 - publication rules, which determine whether an event is well-formed enough to be issued
@@ -253,6 +288,12 @@ Their real purpose is to:
 - formalize transaction expectations
 - make attestor policy concrete
 - support accountable recognition of control-relevant events
+
+OpenETR is designed to operate in an open, permissionless environment.
+
+It does not prevent every action at the protocol layer.
+
+Instead, it provides a sound cryptographic basis for recognition by making control-relevant actions signed, attributable, and reviewable.
 
 In this sense, CLI validation is not merely defensive tooling.
 
