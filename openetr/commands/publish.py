@@ -419,6 +419,71 @@ async def _resolve_active_chain_for_controller(
     return candidates[0]
 
 
+async def _resolve_pending_initiate_for_transferee(
+    relays: str,
+    object_digest: str,
+    author_pubkey_hex: str,
+    query_timeout: int,
+    limit: int,
+) -> tuple[Event, Event]:
+    origin_events = await _find_origin_events_for_object(
+        relays=relays,
+        object_digest=object_digest,
+        query_timeout=query_timeout,
+        limit=limit,
+    )
+    if not origin_events:
+        raise click.ClickException("no origin event was found for this object on the configured relays")
+
+    transfer_events = await _find_control_events_for_object(
+        relays=relays,
+        object_digest=object_digest,
+        query_timeout=query_timeout,
+        limit=limit,
+    )
+
+    origin_events_by_id = {event.id: event for event in origin_events}
+    all_events_by_id = {event.id: event for event in origin_events + transfer_events}
+    transfers_by_origin_id: dict[str, list[Event]] = {}
+    for event in transfer_events:
+        root_origin_id = _resolve_root_origin_id_for_event(event, origin_events_by_id, all_events_by_id)
+        if root_origin_id is not None:
+            transfers_by_origin_id.setdefault(root_origin_id, []).append(event)
+
+    candidates: list[tuple[Event, Event]] = []
+    for origin_event in origin_events:
+        chain_transfers = transfers_by_origin_id.get(origin_event.id, [])
+        if not chain_transfers:
+            continue
+
+        latest_event = max(
+            chain_transfers,
+            key=lambda evt: ((evt.created_at or 0), evt.id),
+        )
+        latest_action = _event_tag_value(latest_event, "action")
+        if latest_action != "initiate":
+            continue
+        intended_transferee_pubkey_hex = _event_tag_value(latest_event, "p")
+        if intended_transferee_pubkey_hex is None:
+            continue
+        intended_transferee_pubkey_hex = assert_hex_pubkey(intended_transferee_pubkey_hex)
+        if intended_transferee_pubkey_hex == author_pubkey_hex:
+            candidates.append((origin_event, latest_event))
+
+    if not candidates:
+        raise click.ClickException(
+            "no pending transfer initiate event was found for this signer on an active control chain for this object"
+        )
+
+    if len(candidates) > 1:
+        raise click.ClickException(
+            "multiple pending transfer initiate events for this object are addressed to this signer; "
+            "the target chain is ambiguous"
+        )
+
+    return candidates[0]
+
+
 async def _fetch_current_profile(
     relays: str,
     pubkey_hex: str,
@@ -1104,6 +1169,7 @@ def transfer_group() -> None:
 
 
 @transfer_group.command("initiate")
+@click.argument("digest_file", required=False, type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--profile", default=None, help="Profile to use; defaults to the active profile.")
 @click.option("--relays", default=None, help="Comma separated relay URLs to use.")
 @click.option(
@@ -1115,12 +1181,6 @@ def transfer_group() -> None:
     "--digest",
     default=None,
     help="nobj or 32-byte hex digest for the ETR object to transfer.",
-)
-@click.option(
-    "--digest-file",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default=None,
-    help="Path to a file to hash with SHA-256 and use as the ETR object identifier.",
 )
 @click.option(
     "--transferee",
@@ -1148,11 +1208,11 @@ def transfer_group() -> None:
 )
 @click.option("--debug", is_flag=True, help="Enable debug logging.")
 def transfer_initiate(
+    digest_file: Path | None,
     profile: str | None,
     relays: str | None,
     prior_event: str | None,
     digest: str | None,
-    digest_file: Path | None,
     transferee: str,
     as_user: str | None,
     force: bool,
@@ -1179,9 +1239,9 @@ def transfer_initiate(
 
     keys = _resolve_publish_key(profile_name, as_user, force)
     if prior_event is not None and (digest is not None or digest_file is not None):
-        raise click.ClickException("supply either --prior-event or one of --digest/--digest-file, not both")
+        raise click.ClickException("supply either --prior-event or one of --digest/DIGEST_FILE, not both")
     if prior_event is None and (digest is None) == (digest_file is None):
-        raise click.ClickException("supply either --prior-event or exactly one of --digest or --digest-file")
+        raise click.ClickException("supply either --prior-event or exactly one of --digest or DIGEST_FILE")
 
     prior_event_id = normalize_event_reference(prior_event) if prior_event is not None else None
     object_digest = None
@@ -1292,18 +1352,13 @@ def transfer_initiate(
 
 
 @click.command("terminate-etr")
+@click.argument("digest_file", required=False, type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--profile", default=None, help="Profile to use; defaults to the active profile.")
 @click.option("--relays", default=None, help="Comma separated relay URLs to use.")
 @click.option(
     "--digest",
     default=None,
     help="nobj or 32-byte hex digest for the ETR object to terminate.",
-)
-@click.option(
-    "--digest-file",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default=None,
-    help="Path to a file to hash with SHA-256 and use as the ETR object identifier.",
 )
 @click.option(
     "--as-user",
@@ -1326,10 +1381,10 @@ def transfer_initiate(
 )
 @click.option("--debug", is_flag=True, help="Enable debug logging.")
 def terminate_etr(
+    digest_file: Path | None,
     profile: str | None,
     relays: str | None,
     digest: str | None,
-    digest_file: Path | None,
     as_user: str | None,
     force: bool,
     comment: str | None,
@@ -1355,7 +1410,7 @@ def terminate_etr(
 
     keys = _resolve_publish_key(profile_name, as_user, force)
     if (digest is None) == (digest_file is None):
-        raise click.ClickException("supply exactly one of --digest or --digest-file")
+        raise click.ClickException("supply exactly one of --digest or DIGEST_FILE")
     object_digest, resolved_digest_file = resolve_query_digest(digest, digest_file)
 
     async def _publish() -> None:
@@ -1427,12 +1482,18 @@ def terminate_etr(
 
 
 @transfer_group.command("accept")
+@click.argument("digest_file", required=False, type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--profile", default=None, help="Profile to use; defaults to the active profile.")
 @click.option("--relays", default=None, help="Comma separated relay URLs to use.")
 @click.option(
     "--initiate-event",
-    required=True,
+    default=None,
     help="Transfer initiate event id in hex or simple nevent form.",
+)
+@click.option(
+    "--digest",
+    default=None,
+    help="nobj or 32-byte hex digest for the ETR object to accept.",
 )
 @click.option(
     "--as-user",
@@ -1443,6 +1504,7 @@ def terminate_etr(
 @click.option("--comment", default="", help="Optional event content.")
 @click.option("--publish-wait", type=float, default=None, help="Seconds to wait after publish before querying.")
 @click.option("--query-timeout", type=int, default=None, help="Seconds to wait for the query to complete.")
+@click.option("--limit", type=int, default=None, help="Query result limit.")
 @click.option(
     "--verify",
     default="any",
@@ -1450,14 +1512,17 @@ def terminate_etr(
 )
 @click.option("--debug", is_flag=True, help="Enable debug logging.")
 def transfer_accept(
+    digest_file: Path | None,
     profile: str | None,
     relays: str | None,
-    initiate_event: str,
+    initiate_event: str | None,
+    digest: str | None,
     as_user: str | None,
     force: bool,
     comment: str,
     publish_wait: float | None,
     query_timeout: int | None,
+    limit: int | None,
     verify: str,
     debug: bool,
 ) -> None:
@@ -1473,36 +1538,103 @@ def transfer_accept(
     resolved_query_timeout = (
         query_timeout if query_timeout is not None else profile_config.get("query_timeout", DEFAULT_QUERY_TIMEOUT)
     )
+    resolved_limit = limit if limit is not None else profile_config.get("limit", DEFAULT_LIMIT)
 
     keys = _resolve_publish_key(profile_name, as_user, force)
-    initiate_event_id = normalize_event_reference(initiate_event)
+    if initiate_event is not None and (digest is not None or digest_file is not None):
+        raise click.ClickException("supply either --initiate-event or one of --digest/DIGEST_FILE, not both")
+    if initiate_event is None and (digest is None) == (digest_file is None):
+        raise click.ClickException("supply either --initiate-event or exactly one of --digest or DIGEST_FILE")
+
+    initiate_event_id = normalize_event_reference(initiate_event) if initiate_event is not None else None
+    object_digest = None
+    if initiate_event is None:
+        object_digest, _ = resolve_query_digest(digest, digest_file)
 
     async def _publish() -> None:
-        initiate = await _fetch_event_by_id(
-            relays=resolved_relays,
-            event_id_hex=initiate_event_id,
-            query_timeout=resolved_query_timeout,
-        )
-        if initiate is None:
-            raise click.ClickException("transfer initiate event could not be found on the configured relays")
-        if initiate.kind != CONTROL_TRANSFER_KIND:
-            raise click.ClickException(f"referenced initiate event must be kind {CONTROL_TRANSFER_KIND}")
-
-        object_digest = _event_tag_value(initiate, "o")
-        if object_digest is None:
-            raise click.ClickException("referenced initiate event does not contain an o tag")
-        object_digest = assert_hex_object_identifier(object_digest)
-
         author_pubkey_hex = assert_hex_pubkey(keys.public_key_hex())
-        d_value = f"{object_digest}:accept"
+        current_initiate_event_id = initiate_event_id
+        if current_initiate_event_id is not None:
+            initiate = await _fetch_event_by_id(
+                relays=resolved_relays,
+                event_id_hex=current_initiate_event_id,
+                query_timeout=resolved_query_timeout,
+            )
+            if initiate is None:
+                raise click.ClickException("transfer initiate event could not be found on the configured relays")
+            if initiate.kind != CONTROL_TRANSFER_KIND:
+                raise click.ClickException(f"referenced initiate event must be kind {CONTROL_TRANSFER_KIND}")
+            initiate_action = _event_tag_value(initiate, "action")
+            if initiate_action != "initiate":
+                raise click.ClickException("referenced event must be a transfer initiate event")
+            object_digest_for_event = _event_tag_value(initiate, "o")
+            if object_digest_for_event is None:
+                raise click.ClickException("referenced initiate event does not contain an o tag")
+            object_digest_for_event = assert_hex_object_identifier(object_digest_for_event)
+        else:
+            _, initiate = await _resolve_pending_initiate_for_transferee(
+                relays=resolved_relays,
+                object_digest=object_digest,
+                author_pubkey_hex=author_pubkey_hex,
+                query_timeout=resolved_query_timeout,
+                limit=resolved_limit,
+            )
+            current_initiate_event_id = initiate.id
+            object_digest_for_event = object_digest
+
+        intended_transferee_pubkey_hex = _event_tag_value(initiate, "p")
+        if intended_transferee_pubkey_hex is None:
+            raise click.ClickException("referenced initiate event does not contain a p tag for the intended transferee")
+        intended_transferee_pubkey_hex = assert_hex_pubkey(intended_transferee_pubkey_hex)
+        if author_pubkey_hex != intended_transferee_pubkey_hex:
+            raise click.ClickException(
+                "transfer accept signer must match the intended transferee named in the referenced initiate event "
+                f"({format_pubkey(intended_transferee_pubkey_hex)})"
+            )
+
+        d_value = f"{object_digest_for_event}:accept"
+        resolved_comment = comment or (
+            "transfer accept; "
+            f"object={format_object_identifier(object_digest_for_event)}; "
+            f"initiate_event={current_initiate_event_id}; "
+            f"acceptor={format_pubkey(author_pubkey_hex)}; "
+            f"initiator={format_pubkey(initiate.pub_key)}"
+        )
+        existing_events = await _find_existing_transfer_records(
+            relays=resolved_relays,
+            d_value=d_value,
+            pubkey_hex=author_pubkey_hex,
+            query_timeout=resolved_query_timeout,
+            limit=resolved_limit,
+        )
+        if existing_events:
+            latest = existing_events[0]
+            click.secho(
+                "WARNING: a transfer accept event already exists for this author and object; "
+                "you may be overwriting an existing replaceable accept record.",
+                fg="yellow",
+                bold=True,
+            )
+            click.echo(f"Existing event: {latest.id}")
+            click.echo(f"Object:         {format_object_identifier(object_digest_for_event)}")
+            click.confirm(
+                click.style("Continue publishing this transfer accept event?", fg="yellow", bold=True),
+                default=False,
+                abort=True,
+            )
+        click.confirm(
+            "Confirm publishing this transfer accept event?",
+            default=True,
+            abort=True,
+        )
         event = Event(
             kind=CONTROL_TRANSFER_KIND,
-            content=comment,
+            content=resolved_comment,
             pub_key=author_pubkey_hex,
             tags=[
                 ["d", d_value],
-                ["o", object_digest],
-                ["e", initiate_event_id],
+                ["o", object_digest_for_event],
+                ["e", current_initiate_event_id],
                 ["p", initiate.pub_key],
                 ["action", "accept"],
             ],

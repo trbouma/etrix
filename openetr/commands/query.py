@@ -814,15 +814,10 @@ def query_object(
 
 
 @click.command("query-etr")
+@click.argument("digest_file", required=False, type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--profile", default=None, help="Profile to use; defaults to the active profile.")
 @click.option("--relays", default=None, help="Comma separated relay URLs to query.")
 @click.option("--digest", default=None, help="nobj or 64-character hex digest to query for.")
-@click.option(
-    "--digest-file",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default=None,
-    help="Path to a file to hash with SHA-256 and use as the d filter value.",
-)
 @click.option(
     "--limit",
     type=int,
@@ -847,10 +842,10 @@ def query_object(
 @click.option("--ssl-disable-verify", is_flag=True, help="Disable SSL certificate verification.")
 @click.option("--debug", is_flag=True, help="Enable debug logging.")
 def query_etr(
+    digest_file: Path | None,
     profile: str | None,
     relays: str | None,
     digest: str | None,
-    digest_file: Path | None,
     limit: int | None,
     timeout: int | None,
     output: str | None,
@@ -862,6 +857,9 @@ def query_etr(
 ) -> None:
     """Query an ETR object and display its initial record and issuer profile."""
     logging.getLogger().setLevel(logging.DEBUG if debug else logging.INFO)
+
+    if digest is not None and digest_file is not None:
+        raise click.ClickException("supply either DIGEST_FILE as an argument or --digest, not both")
 
     profile_name = profile or get_active_profile_name()
     profile_config = get_profile_config(profile_name)
