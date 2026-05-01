@@ -352,7 +352,7 @@ def _resolve_root_origin_id_for_event(
         current_event = previous_event
 
 
-async def _resolve_termination_chain_for_controller(
+async def _resolve_active_chain_for_controller(
     relays: str,
     object_digest: str,
     author_pubkey_hex: str,
@@ -413,7 +413,7 @@ async def _resolve_termination_chain_for_controller(
     if len(candidates) > 1:
         raise click.ClickException(
             "multiple active control chains for this object are currently controlled by this signer; "
-            "termination is ambiguous"
+            "the target chain is ambiguous"
         )
 
     return candidates[0]
@@ -1108,8 +1108,19 @@ def transfer_group() -> None:
 @click.option("--relays", default=None, help="Comma separated relay URLs to use.")
 @click.option(
     "--prior-event",
-    required=True,
+    default=None,
     help="Prior event id in hex or simple nevent form; may be the origin event or a prior transfer event.",
+)
+@click.option(
+    "--digest",
+    default=None,
+    help="nobj or 32-byte hex digest for the ETR object to transfer.",
+)
+@click.option(
+    "--digest-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Path to a file to hash with SHA-256 and use as the ETR object identifier.",
 )
 @click.option(
     "--transferee",
@@ -1139,7 +1150,9 @@ def transfer_group() -> None:
 def transfer_initiate(
     profile: str | None,
     relays: str | None,
-    prior_event: str,
+    prior_event: str | None,
+    digest: str | None,
+    digest_file: Path | None,
     transferee: str,
     as_user: str | None,
     force: bool,
@@ -1165,21 +1178,39 @@ def transfer_initiate(
     resolved_limit = limit if limit is not None else profile_config.get("limit", DEFAULT_LIMIT)
 
     keys = _resolve_publish_key(profile_name, as_user, force)
-    prior_event_id = normalize_event_reference(prior_event)
+    if prior_event is not None and (digest is not None or digest_file is not None):
+        raise click.ClickException("supply either --prior-event or one of --digest/--digest-file, not both")
+    if prior_event is None and (digest is None) == (digest_file is None):
+        raise click.ClickException("supply either --prior-event or exactly one of --digest or --digest-file")
+
+    prior_event_id = normalize_event_reference(prior_event) if prior_event is not None else None
+    object_digest = None
+    if prior_event is None:
+        object_digest, _ = resolve_query_digest(digest, digest_file)
     transferee_hex = parse_authors(transferee)
     if not transferee_hex:
         raise click.ClickException("transferee must resolve to a valid npub")
     transferee_pubkey_hex = transferee_hex[0]
 
     async def _publish() -> None:
-        resolved_origin, referenced_event = await _resolve_origin_from_prior_event(
-            relays=resolved_relays,
-            prior_event_id_hex=prior_event_id,
-            query_timeout=resolved_query_timeout,
-        )
-
-        object_digest = _derive_origin_object_digest(resolved_origin)
         author_pubkey_hex = assert_hex_pubkey(keys.public_key_hex())
+        if prior_event_id is not None:
+            resolved_origin, referenced_event = await _resolve_origin_from_prior_event(
+                relays=resolved_relays,
+                prior_event_id_hex=prior_event_id,
+                query_timeout=resolved_query_timeout,
+            )
+            object_digest_for_event = _derive_origin_object_digest(resolved_origin)
+        else:
+            resolved_origin, referenced_event = await _resolve_active_chain_for_controller(
+                relays=resolved_relays,
+                object_digest=object_digest,
+                author_pubkey_hex=author_pubkey_hex,
+                query_timeout=resolved_query_timeout,
+                limit=resolved_limit,
+            )
+            object_digest_for_event = object_digest
+
         if referenced_event.kind == DEFAULT_KIND:
             origin_author_pubkey_hex = assert_hex_pubkey(resolved_origin.pub_key)
             if author_pubkey_hex != origin_author_pubkey_hex:
@@ -1204,10 +1235,10 @@ def transfer_initiate(
                 f"prior event must be kind {DEFAULT_KIND} (origin) or {CONTROL_TRANSFER_KIND} (control transfer)"
             )
         _warn_if_missing_prior_accept(referenced_event)
-        d_value = f"{object_digest}:initiate"
+        d_value = f"{object_digest_for_event}:initiate"
         resolved_comment = comment or (
             "transfer initiate; "
-            f"object={format_object_identifier(object_digest)}; "
+            f"object={format_object_identifier(object_digest_for_event)}; "
             f"prior_event={referenced_event.id}; "
             f"origin_event={resolved_origin.id}; "
             f"transferee={format_pubkey(transferee_pubkey_hex)}; "
@@ -1229,7 +1260,7 @@ def transfer_initiate(
                 bold=True,
             )
             click.echo(f"Existing event: {latest.id}")
-            click.echo(f"Object:         {format_object_identifier(object_digest)}")
+            click.echo(f"Object:         {format_object_identifier(object_digest_for_event)}")
             click.confirm(
                 click.style("Continue publishing this transfer initiate event?", fg="yellow", bold=True),
                 default=False,
@@ -1241,7 +1272,7 @@ def transfer_initiate(
             pub_key=author_pubkey_hex,
             tags=[
                 ["d", d_value],
-                ["o", object_digest],
+                ["o", object_digest_for_event],
                 ["e", referenced_event.id],
                 ["origin", resolved_origin.id],
                 ["p", transferee_pubkey_hex],
@@ -1329,7 +1360,7 @@ def terminate_etr(
 
     async def _publish() -> None:
         author_pubkey_hex = assert_hex_pubkey(keys.public_key_hex())
-        resolved_origin, referenced_event = await _resolve_termination_chain_for_controller(
+        resolved_origin, referenced_event = await _resolve_active_chain_for_controller(
             relays=resolved_relays,
             object_digest=object_digest,
             author_pubkey_hex=author_pubkey_hex,
