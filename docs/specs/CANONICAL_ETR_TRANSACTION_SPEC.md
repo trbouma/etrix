@@ -144,6 +144,8 @@ That is a fundamental difference from models in which the authoritative record i
 
 In OpenETR, the evidence chain can persist outside and independently of any one system because the relevant unit is the signed event itself rather than the custody of a single data store.
 
+OpenETR now applies the same general design direction to its CLI administration layer as well: operational configuration is increasingly represented by relay-backed signed records rather than being treated as machine-local state alone.
+
 ### Recognition Basis
 
 Legal effect or operational recognition may therefore be based on whether:

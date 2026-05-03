@@ -6,19 +6,33 @@ from openetr.config import HOME_RELAY_KEY, ROOT_NSEC_KEY, USER_CONFIG_PATH, ensu
 
 
 @click.group(invoke_without_command=True)
+@click.option("--as-root", default=None, help="Use this root nsec for this invocation without relying on local bootstrap.")
+@click.option(
+    "--home-relays",
+    default=None,
+    help="Use these comma-separated home relays for this invocation without relying on local bootstrap.",
+)
 @click.pass_context
-def main(ctx: click.Context) -> None:
+def main(ctx: click.Context, as_root: str | None, home_relays: str | None) -> None:
     """OpenETR command line utility."""
+    ctx.ensure_object(dict)
+    if as_root:
+        ctx.obj[ROOT_NSEC_KEY] = as_root
+    if home_relays:
+        ctx.obj[HOME_RELAY_KEY] = home_relays
+
+    has_runtime_bootstrap = bool(as_root and home_relays)
+
     if ctx.invoked_subcommand in {"init-config", "bootstrap"}:
         return
 
-    if not USER_CONFIG_PATH.exists():
+    if not USER_CONFIG_PATH.exists() and not has_runtime_bootstrap:
         if ctx.invoked_subcommand is None:
             click.secho("No OpenETR bootstrap config was found.", fg="yellow", bold=True, err=True)
             click.echo(f"Expected bootstrap file: {USER_CONFIG_PATH}", err=True)
             click.echo(
-                "If you already know the root nsec and home relay for this OpenETR environment, "
-                "use: openetr bootstrap --root-nsec <nsec> --home-relay <relay>",
+                "If you already know the root nsec and home relays for this OpenETR environment, "
+                "use: openetr bootstrap --root-nsec <nsec> --home-relays <relay[,relay]>",
                 err=True,
             )
             click.confirm(
@@ -28,14 +42,14 @@ def main(ctx: click.Context) -> None:
                 err=True,
             )
             click.echo("Starting bootstrap setup...", err=True)
-            ctx.invoke(bootstrap, root_nsec=None, home_relay=None, force=False)
+            ctx.invoke(bootstrap, root_nsec=None, home_relays=None, force=False)
             return
 
         click.secho("No OpenETR bootstrap config was found.", fg="yellow", bold=True, err=True)
         click.echo(f"Expected bootstrap file: {USER_CONFIG_PATH}", err=True)
         click.echo(
-            "If you already know the root nsec and home relay for this OpenETR environment, "
-            "abort and run: openetr bootstrap --root-nsec <nsec> --home-relay <relay>",
+            "If you already know the root nsec and home relays for this OpenETR environment, "
+            "abort and run: openetr bootstrap --root-nsec <nsec> --home-relays <relay[,relay]>",
             err=True,
         )
         click.confirm(
@@ -59,7 +73,7 @@ def main(ctx: click.Context) -> None:
             )
     if changes.get(HOME_RELAY_KEY):
         click.secho(
-            f"Set home relay to {changes[HOME_RELAY_KEY]}.",
+            f"Set home relays to {changes[HOME_RELAY_KEY]}.",
             fg="yellow",
             bold=True,
             err=True,

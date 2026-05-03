@@ -37,6 +37,59 @@ PROFILE_KEYS = {
 }
 
 
+def _normalize_relays(relays: str | list[str] | tuple[str, ...] | None) -> list[str]:
+    if relays is None:
+        return []
+
+    if isinstance(relays, (list, tuple)):
+        candidates = [str(item) for item in relays]
+    else:
+        candidates = str(relays).split(",")
+
+    normalized = []
+    for item in candidates:
+        cleaned = str(item or "").strip()
+        if not cleaned:
+            continue
+        normalized.append(_normalize_relay_url(cleaned))
+    return normalized
+
+
+def _runtime_bootstrap_overrides() -> dict[str, str]:
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return {}
+    return dict(ctx.obj or {})
+
+
+def runtime_bootstrap_enabled() -> bool:
+    overrides = _runtime_bootstrap_overrides()
+    return bool(overrides.get(ROOT_NSEC_KEY) and overrides.get(HOME_RELAY_KEY))
+
+
+def resolve_root_nsec(config: dict | None = None) -> str | None:
+    overrides = _runtime_bootstrap_overrides()
+    if overrides.get(ROOT_NSEC_KEY):
+        return overrides[ROOT_NSEC_KEY]
+    config = config or load_user_config()
+    return config.get(ROOT_NSEC_KEY)
+
+
+def resolve_home_relays(config: dict | None = None) -> list[str]:
+    overrides = _runtime_bootstrap_overrides()
+    if overrides.get(HOME_RELAY_KEY):
+        return _normalize_relays(overrides[HOME_RELAY_KEY])
+    config = config or load_user_config()
+    configured = config.get(HOME_RELAY_KEY)
+    if configured:
+        return _normalize_relays(configured)
+    return [_default_home_relay(config)]
+
+
+def resolve_home_relays_value(config: dict | None = None) -> str:
+    return ",".join(resolve_home_relays(config))
+
+
 def packaged_defaults() -> dict:
     with PACKAGED_DEFAULTS_PATH.open("r", encoding="utf-8") as handle:
         defaults = yaml.safe_load(handle) or {}
@@ -157,6 +210,8 @@ def write_bootstrap_config(root_nsec: str, home_relay: str) -> None:
 
 
 def write_user_config(config: dict) -> None:
+    if runtime_bootstrap_enabled():
+        return
     USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     normalized = normalize_user_config(config)
     with USER_CONFIG_PATH.open("w", encoding="utf-8") as handle:
@@ -167,11 +222,18 @@ def ensure_root_bootstrap(config: dict | None = None, *, write: bool = True) -> 
     resolved = deepcopy(config or load_user_config())
     changes: dict = {}
     default_profile_defaults = packaged_defaults()
+    overrides = _runtime_bootstrap_overrides()
+    using_runtime_bootstrap = bool(overrides.get(ROOT_NSEC_KEY) and overrides.get(HOME_RELAY_KEY))
 
     profiles = resolved.setdefault(PROFILES_KEY, {})
     if DEFAULT_PROFILE_NAME not in profiles or not profiles.get(DEFAULT_PROFILE_NAME):
         profiles[DEFAULT_PROFILE_NAME] = deepcopy(default_profile_defaults)
         changes["default_profile_initialized"] = True
+
+    if overrides.get(ROOT_NSEC_KEY):
+        resolved[ROOT_NSEC_KEY] = overrides[ROOT_NSEC_KEY]
+    if overrides.get(HOME_RELAY_KEY):
+        resolved[HOME_RELAY_KEY] = overrides[HOME_RELAY_KEY]
 
     if not resolved.get(ROOT_NSEC_KEY):
         keys = Keys()
@@ -187,7 +249,7 @@ def ensure_root_bootstrap(config: dict | None = None, *, write: bool = True) -> 
         resolved[HOME_RELAY_KEY] = _default_home_relay(resolved)
         changes[HOME_RELAY_KEY] = resolved[HOME_RELAY_KEY]
 
-    if changes and write:
+    if changes and write and not using_runtime_bootstrap:
         raw_existing = load_raw_user_config()
         if not raw_existing:
             write_bootstrap_config(resolved[ROOT_NSEC_KEY], resolved[HOME_RELAY_KEY])
@@ -372,10 +434,11 @@ class ProfileConfigRecord(BaseModel):
 
 
 def _get_root_keys(config: dict | None = None) -> Keys:
-    config = config or load_user_config()
-    root_nsec = config.get(ROOT_NSEC_KEY)
+    root_nsec = resolve_root_nsec(config)
     if not root_nsec:
-        raise click.ClickException(f"root nsec was not found in {USER_CONFIG_PATH}")
+        raise click.ClickException(
+            f"root nsec was not found in {USER_CONFIG_PATH}; use --as-root for stateless operation"
+        )
     return resolve_key_string(root_nsec)
 
 
@@ -423,7 +486,7 @@ async def _async_store_profiles_index(index: ProfilesIndexRecord, config: dict) 
         tags=[["d", d_value]],
     )
     event.sign(root_keys.private_key_hex())
-    async with ClientPool([config[HOME_RELAY_KEY]]) as client:
+    async with ClientPool(resolve_home_relays(config)) as client:
         client.publish(event)
         await asyncio.sleep(0.2)
 
@@ -442,7 +505,7 @@ async def _async_store_aliases_index(index: AliasIndexRecord, config: dict) -> N
         tags=[["d", d_value]],
     )
     event.sign(root_keys.private_key_hex())
-    async with ClientPool([config[HOME_RELAY_KEY]]) as client:
+    async with ClientPool(resolve_home_relays(config)) as client:
         client.publish(event)
         await asyncio.sleep(0.2)
 
@@ -456,7 +519,7 @@ async def _async_load_profiles_index(config: dict) -> ProfilesIndexRecord | None
         "#d": [d_value],
         "limit": 1,
     }
-    async with ClientPool([config[HOME_RELAY_KEY]]) as client:
+    async with ClientPool(resolve_home_relays(config)) as client:
         events = await client.query(query_filter)
     Event.sort(events, inplace=True, reverse=True)
     if not events:
@@ -477,7 +540,7 @@ async def _async_load_aliases_index(config: dict) -> AliasIndexRecord | None:
         "#d": [d_value],
         "limit": 1,
     }
-    async with ClientPool([config[HOME_RELAY_KEY]]) as client:
+    async with ClientPool(resolve_home_relays(config)) as client:
         events = await client.query(query_filter)
     Event.sort(events, inplace=True, reverse=True)
     if not events:
@@ -574,7 +637,7 @@ async def _async_store_profile_record(profile: str, values: dict, config: dict) 
         tags=[["d", d_value]],
     )
     event.sign(root_keys.private_key_hex())
-    async with ClientPool([config[HOME_RELAY_KEY]]) as client:
+    async with ClientPool(resolve_home_relays(config)) as client:
         client.publish(event)
         await asyncio.sleep(0.2)
 
@@ -588,7 +651,7 @@ async def _async_load_profile_record(profile: str, config: dict) -> ProfileConfi
         "#d": [d_value],
         "limit": 1,
     }
-    async with ClientPool([config[HOME_RELAY_KEY]]) as client:
+    async with ClientPool(resolve_home_relays(config)) as client:
         events = await client.query(query_filter)
     Event.sort(events, inplace=True, reverse=True)
     if not events:
@@ -628,7 +691,7 @@ async def _async_delete_profile_record(profile: str, config: dict) -> bool:
         "#d": [d_value],
         "limit": 1,
     }
-    async with ClientPool([config[HOME_RELAY_KEY]]) as client:
+    async with ClientPool(resolve_home_relays(config)) as client:
         events = await client.query(query_filter)
         Event.sort(events, inplace=True, reverse=True)
         if not events:
@@ -680,7 +743,7 @@ async def _async_store_profile_secret(profile: str, nsec: str, config: dict) -> 
         tags=[["d", d_value]],
     )
     event.sign(root_keys.private_key_hex())
-    async with ClientPool([config[HOME_RELAY_KEY]]) as client:
+    async with ClientPool(resolve_home_relays(config)) as client:
         client.publish(event)
         await asyncio.sleep(0.2)
     return payload.npub
@@ -704,7 +767,7 @@ async def _async_load_profile_secret(profile: str, config: dict) -> str | None:
         "#d": [d_value],
         "limit": 1,
     }
-    async with ClientPool([config[HOME_RELAY_KEY]]) as client:
+    async with ClientPool(resolve_home_relays(config)) as client:
         events = await client.query(query_filter)
 
     Event.sort(events, inplace=True, reverse=True)
@@ -737,7 +800,7 @@ async def _async_delete_profile_secret(profile: str, config: dict) -> bool:
         "#d": [d_value],
         "limit": 1,
     }
-    async with ClientPool([config[HOME_RELAY_KEY]]) as client:
+    async with ClientPool(resolve_home_relays(config)) as client:
         events = await client.query(query_filter)
         Event.sort(events, inplace=True, reverse=True)
         if not events:

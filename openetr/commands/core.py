@@ -375,7 +375,7 @@ def init_config(force: bool) -> None:
     click.echo(f"Wrote config to {USER_CONFIG_PATH}")
     if changes.get("root_recovery_phrase") or changes.get("root_recovery_phrase_unavailable"):
         click.echo("Root CLI bootstrap created:")
-        click.echo(f"  home relay: {config['home_relay']}")
+        click.echo(f"  home relays: {config['home_relay']}")
         click.echo(f"  root nsec: {config['root_nsec']}")
         if changes.get("root_recovery_phrase"):
             click.echo("  recovery phrase:")
@@ -386,18 +386,18 @@ def init_config(force: bool) -> None:
 
 @click.command("bootstrap")
 @click.option("--root-nsec", default=None, help="Set the root bootstrap nsec.")
-@click.option("--home-relay", default=None, help="Set the home relay for relay-backed config recovery.")
+@click.option("--home-relays", default=None, help="Set the home relays for relay-backed config recovery.")
 @click.option("--force", is_flag=True, help="Overwrite the existing bootstrap values without confirmation.")
-def bootstrap(root_nsec: str | None, home_relay: str | None, force: bool) -> None:
+def bootstrap(root_nsec: str | None, home_relays: str | None, force: bool) -> None:
     """Show or set the minimal local bootstrap config."""
     raw_config = load_raw_user_config()
     config = load_user_config()
 
-    if root_nsec is None and home_relay is None:
+    if root_nsec is None and home_relays is None:
         config, _ = ensure_root_bootstrap(config)
         click.echo("Bootstrap")
         click.echo(f"  root_nsec: {config.get('root_nsec')}")
-        click.echo(f"  home_relay: {config.get('home_relay')}")
+        click.echo(f"  home_relays: {config.get('home_relay')}")
         return
 
     updated_root_nsec = raw_config.get("root_nsec") or config.get("root_nsec")
@@ -415,23 +415,23 @@ def bootstrap(root_nsec: str | None, home_relay: str | None, force: bool) -> Non
         updated_root_nsec = normalized_root
         changed.append("root_nsec")
 
-    if home_relay is not None:
-        normalized_home_relay = _normalize_relays(home_relay).split(",")[0]
+    if home_relays is not None:
+        normalized_home_relay = _normalize_relays(home_relays)
         if updated_home_relay and updated_home_relay != normalized_home_relay and not force:
             click.confirm(
-                "Replace the existing home relay?",
+                "Replace the existing home relays?",
                 default=False,
                 abort=True,
             )
         updated_home_relay = normalized_home_relay
-        changed.append("home_relay")
+        changed.append("home_relays")
 
     write_bootstrap_config(updated_root_nsec, updated_home_relay)
     click.echo(f"Updated bootstrap in {USER_CONFIG_PATH}")
     if changed:
         click.echo(f"  changed: {', '.join(changed)}")
     click.echo(f"  root_nsec: {updated_root_nsec}")
-    click.echo(f"  home_relay: {updated_home_relay}")
+    click.echo(f"  home_relays: {updated_home_relay}")
 
 
 @click.command("migrate-config")
@@ -470,7 +470,7 @@ def migrate_config(prune: bool) -> None:
         write_user_config(pruned_config)
 
     click.echo("Migrated local configuration to relay-backed records.")
-    click.echo(f"  home relay: {config['home_relay']}")
+    click.echo(f"  home relays: {config['home_relay']}")
     click.echo(f"  profile records synced: {migrated_profile_records}")
     click.echo(f"  profile signer secrets migrated: {migrated_secrets}")
     click.echo(f"  aliases indexed: {len(alias_index.aliases)}")

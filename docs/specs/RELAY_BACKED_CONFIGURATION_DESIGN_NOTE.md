@@ -8,7 +8,9 @@ This note is architectural, but it also records the current preferred implementa
 
 ## Status
 
-Draft.
+Draft, with partial implementation already in the OpenETR CLI.
+
+The current CLI now uses relay-backed records for a substantial part of its operational state.
 
 ## Purpose
 
@@ -40,6 +42,26 @@ OpenETR should support a relay-backed configuration model with two layers:
 The local bootstrap layer exists only to let the CLI find and unlock the relay-backed state.
 
 The relay-backed layer becomes the real source of truth.
+
+## Current Implementation State
+
+OpenETR is no longer treating the local `config.yaml` file as the sole authoritative source of CLI state.
+
+The current implementation direction is:
+
+- relay-backed records are the primary source for profile discovery and operational recovery
+- the local bootstrap file is being reduced toward the minimum needed to locate and unlock relay-backed state
+- local YAML is still retained as a compatibility mirror in some paths, but it is no longer the intended long-term source of truth
+
+As currently implemented, OpenETR uses relay-backed records for:
+
+- the profile index
+- the active profile
+- aliases
+- per-profile signer secrets
+- per-profile operational settings
+
+This means that a fresh machine can increasingly recover the CLI environment from relay-backed records once the bootstrap values are known.
 
 ## Underlying Philosophy
 
@@ -105,6 +127,28 @@ The bootstrap layer should remain intentionally small.
 
 It is a locator and unlock mechanism, not the primary config store.
 
+### Current Bootstrap Minimum
+
+The intended local bootstrap minimum is now:
+
+- `root_nsec`
+- `home_relay`
+
+In practical terms, that means the intended final local file can be as small as:
+
+```yaml
+root_nsec: nsec1...
+home_relay: wss://relay.example
+```
+
+Once the relay-backed records have been populated, this is sufficient to recover:
+
+- the profile index
+- the active profile
+- aliases
+- per-profile settings
+- per-profile signer secrets
+
 ## Relay-Backed Authoritative Configuration
 
 The authoritative OpenETR CLI configuration should live on relays as signed events under the root CLI key.
@@ -137,6 +181,17 @@ The key idea is that configuration records should be:
 - hard to enumerate meaningfully without knowledge of the label derivation rule
 
 The exact label-to-`d` derivation should be deterministic for the root key holder and stable across machines.
+
+### Current Working Convention
+
+The current OpenETR CLI implementation uses:
+
+- kind `31500`
+- NIP-44 encrypted event content
+- Pydantic models for structured record payloads
+- a deterministic `d` tag derived from the record label using the root secret as a salt
+
+This is now the active working convention for relay-backed CLI configuration.
 
 ## Record Label Index
 
@@ -199,6 +254,19 @@ The exact schema can be finalized later, but the design requirement is clear:
 
 the CLI must be able to recover the list of label names before it can derive all of the `d` tags needed for record retrieval.
 
+### Current Reserved Records
+
+The current implementation uses or is converging on the following reserved relay-backed records:
+
+- `profiles`
+  stores the known profile names and the active profile
+- `aliases`
+  stores nickname-to-`npub` mappings
+- `config:profile:<name>`
+  stores the non-secret operational settings for a named profile
+- `config:profile:<name>:as_user`
+  stores the encrypted signer secret for a named profile
+
 ## Why Labeled Records Are Better Than One Big Blob
 
 OpenETR should prefer labeled relay-backed configuration records over one monolithic encrypted config object.
@@ -244,6 +312,8 @@ Each such category would be represented as its own kind `31500` addressable reco
 
 The record label index would describe which of these records currently exist.
 
+The implementation has now effectively specialized these categories into a small set of concrete reserved records used by the CLI.
+
 ## Structured Payloads
 
 Relay-backed configuration content should be represented as structured application data rather than ad hoc string blobs.
@@ -266,6 +336,13 @@ Examples may include models for:
 - default operational settings
 
 The relay event content should therefore be treated as serialized structured data, not as arbitrary free-form text.
+
+The current implementation uses Pydantic-backed structured payloads for:
+
+- the profile index
+- the alias index
+- per-profile operational settings
+- per-profile signer secrets
 
 ## Proposed Profile Record Contents
 
@@ -394,6 +471,11 @@ Relay-backed CLI configuration is for operational state such as:
 
 These should remain conceptually separate even if both are stored on relays.
 
+The current OpenETR implementation therefore distinguishes clearly between:
+
+- relay-backed CLI administration records under the root CLI key
+- public kind `0` social profile records under the operational profile keys
+
 ## Advantages
 
 This model provides several important benefits.
@@ -480,6 +562,19 @@ In that final model, the CLI bootstrap sequence would be:
 4. derive the salted `d` tags for the indexed labels
 5. fetch and decrypt the remaining configuration records
 6. reconstruct the usable CLI state
+
+### Current Position
+
+OpenETR is now effectively between Stage 2 and Stage 3.
+
+The CLI can already:
+
+- bootstrap from a root `nsec` and home relay
+- recover relay-backed profile and alias information
+- recover relay-backed per-profile settings
+- recover relay-backed signer secrets
+
+The local file is therefore being reduced to bootstrap information rather than continuing as the authoritative operational store.
 
 This staged path reduces migration risk while moving toward the more portable architecture.
 
