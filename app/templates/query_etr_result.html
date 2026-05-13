@@ -149,31 +149,6 @@
             and using that signer context for query display.
           {% endif %}
         </div>
-        {% if available_profiles %}
-        <h2>Available Profiles</h2>
-        <ul>
-          {% for profile in available_profiles %}
-          <li>
-            <strong>{{ profile.name }}</strong>
-            {% if profile.is_active %}(active){% endif %}
-            {% if profile.is_selected %}(selected){% endif %}
-            {% if profile.signer_npub %}
-              <div>signer: <span class="mono" title="{{ profile.signer_npub }}">{{ profile.signer_npub | short_id }}</span></div>
-              <div>source: {{ profile.signer_source }}</div>
-            {% else %}
-              <div>signer: none configured</div>
-            {% endif %}
-            <div>
-              {% if profile.signer_matches_session %}
-                <strong>usable:</strong> matches current session signer
-              {% else %}
-                <strong>usable:</strong> session override available
-              {% endif %}
-            </div>
-          </li>
-          {% endfor %}
-        </ul>
-        {% endif %}
       </section>
       {% endif %}
       <section class="panel">
