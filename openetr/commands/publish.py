@@ -37,6 +37,7 @@ from openetr.helpers import (
     resolve_keys,
     resolve_lei,
 )
+from openetr.guards import evaluate_issue_etr_guard, find_existing_origin_records_for_object
 
 CONTROL_TRANSFER_KIND = 31416
 
@@ -191,33 +192,6 @@ async def _find_existing_object_records(
                 "authors": [pubkey_hex],
                 "kinds": [DEFAULT_KIND],
                 "#d": [digest],
-                "limit": limit,
-            },
-            emulate_single=True,
-            wait_connect=True,
-            timeout=query_timeout,
-        )
-
-    Event.sort(events, inplace=True, reverse=True)
-    return events
-
-
-async def _find_existing_origin_records_for_object(
-    relays: str,
-    digest: str,
-    query_timeout: int,
-    limit: int,
-) -> list[Event]:
-    assert_hex_object_identifier(digest)
-    async with ClientPool(
-        relays.split(","),
-        timeout=query_timeout,
-        query_timeout=query_timeout,
-    ) as client:
-        events = await client.query(
-            {
-                "kinds": [DEFAULT_KIND],
-                "#o": [digest],
                 "limit": limit,
             },
             emulate_single=True,
@@ -1114,30 +1088,20 @@ def issue_etr(
         digest_file_size=file_size,
     )
 
-    existing_events = asyncio.run(
-        _find_existing_origin_records_for_object(
+    issue_guard = asyncio.run(
+        evaluate_issue_etr_guard(
             relays=resolved_relays,
             digest=resolved_digest,
+            author_pubkey_hex=keys.public_key_hex(),
             query_timeout=resolved_query_timeout,
             limit=resolved_limit,
         )
     )
-    if existing_events:
-        latest = existing_events[0]
-        same_author = latest.pub_key == keys.public_key_hex()
-        warning_message = (
-            "WARNING: this file has already been issued as an ETR. "
-            "Issuing it again may create a competing or conflicting origin record for the same object."
-        )
-        if same_author:
-            warning_message = (
-                "WARNING: this file has already been issued as an ETR by the current signer. "
-                "Issuing it again may overwrite or conflict with the existing origin record."
-            )
-        click.secho(warning_message, fg="yellow", bold=True)
-        click.echo(f"Existing event:  {latest.id}")
-        click.echo(f"Existing issuer: {format_pubkey(latest.pub_key)}")
-        click.echo(f"Existing object: {format_object_identifier(resolved_digest)}")
+    if issue_guard["should_warn"]:
+        click.secho(issue_guard["warning_message"], fg="yellow", bold=True)
+        click.echo(f"Existing event:  {issue_guard['latest_event_id']}")
+        click.echo(f"Existing issuer: {issue_guard['latest_issuer_npub']}")
+        click.echo(f"Existing object: {issue_guard['object_id']}")
         click.confirm(
             click.style("Continue issuing this ETR record?", fg="yellow", bold=True),
             default=False,

@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ app_title }} Profile Editor</title>
+    <style>
+      :root {
+        --bg: #f5efe3;
+        --panel: #fffaf4;
+        --text: #1f1a14;
+        --accent: #8a5b2d;
+        --border: #d7c3a2;
+      }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, #fde7be 0, transparent 26rem),
+          linear-gradient(180deg, #f8f1e4 0%, var(--bg) 100%);
+      }
+      main {
+        max-width: 62rem;
+        margin: 3rem auto;
+        padding: 0 1.25rem;
+      }
+      .panel {
+        background: color-mix(in srgb, var(--panel) 96%, white);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        padding: 1.5rem;
+        box-shadow: 0 12px 32px rgba(71, 44, 17, 0.08);
+        margin-bottom: 1rem;
+      }
+      .notice {
+        margin-bottom: 1rem;
+        padding: 0.8rem 1rem;
+        border-radius: 0.75rem;
+      }
+      .notice.error {
+        background: #fff1ec;
+        border: 1px solid #e1a18d;
+      }
+      .notice.success {
+        background: #eef8ee;
+        border: 1px solid #9cc39c;
+      }
+      .notice.info {
+        background: #f2f5f7;
+        border: 1px solid #b8c8d3;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1rem;
+      }
+      label {
+        display: grid;
+        gap: 0.4rem;
+        font-weight: 600;
+      }
+      input[type="text"], textarea {
+        width: 100%;
+        box-sizing: border-box;
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 0.75rem;
+        padding: 0.8rem;
+        font: inherit;
+      }
+      textarea {
+        min-height: 7rem;
+        resize: vertical;
+      }
+      .full {
+        grid-column: 1 / -1;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        word-break: break-all;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 12rem 1fr;
+        gap: 0.35rem 1rem;
+      }
+      button {
+        width: fit-content;
+        border: 0;
+        border-radius: 999px;
+        padding: 0.8rem 1.2rem;
+        background: var(--accent);
+        color: white;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+      .actions {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      a {
+        color: var(--accent);
+      }
+      @media (max-width: 720px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .kv {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      {% if error_message %}
+      <div class="notice error">{{ error_message }}</div>
+      {% endif %}
+      {% if success_message %}
+      <div class="notice success">{{ success_message }}</div>
+      {% endif %}
+      <div class="notice info">
+        This profile editor is a web adapter over shared <code>openetr</code> profile-publish services.
+        The intended architecture is one core implementation reused across the web app, human CLI, agent CLI, and agent API.
+      </div>
+
+      <section class="panel">
+        <h1>Update Profile</h1>
+        <p><strong>Selected profile:</strong> <code>{{ profile_name }}</code></p>
+        <p><strong>Signer:</strong> <code>{{ identity.npub }}</code></p>
+        <p><strong>Relays:</strong> <span class="mono">{{ relays }}</span></p>
+        <p>Blank fields are removed from the merged profile when you publish. Enable replace mode to publish only the fields shown in this form.</p>
+        <p>The design note for this multi-modality approach lives in <code>docs/specs/MULTI_MODALITY_ARCHITECTURE_NOTE.md</code>.</p>
+      </section>
+
+      <section class="panel">
+        <form action="/profiles/edit" method="post">
+          <input type="hidden" name="relays" value="{{ relays }}">
+          <div class="grid">
+            <label>
+              Name
+              <input type="text" name="name" value="{{ profile_fields.name }}">
+            </label>
+            <label>
+              Display Name
+              <input type="text" name="display_name" value="{{ profile_fields.display_name }}">
+            </label>
+            <label class="full">
+              About
+              <textarea name="about">{{ profile_fields.about }}</textarea>
+            </label>
+            <label class="full">
+              Address
+              <input type="text" name="address" value="{{ profile_fields.address }}">
+            </label>
+            <label>
+              Picture URL
+              <input type="text" name="picture" value="{{ profile_fields.picture }}">
+            </label>
+            <label>
+              Banner URL
+              <input type="text" name="banner" value="{{ profile_fields.banner }}">
+            </label>
+            <label>
+              Website
+              <input type="text" name="website" value="{{ profile_fields.website }}">
+            </label>
+            <label>
+              NIP-05
+              <input type="text" name="nip05" value="{{ profile_fields.nip05 }}">
+            </label>
+            <label>
+              LUD-16
+              <input type="text" name="lud16" value="{{ profile_fields.lud16 }}">
+            </label>
+            <label>
+              LUD-06
+              <input type="text" name="lud06" value="{{ profile_fields.lud06 }}">
+            </label>
+            <label>
+              LEI
+              <input type="text" name="lei" value="{{ profile_fields.lei }}">
+            </label>
+            <label class="full">
+              <input type="checkbox" name="replace" value="true">
+              Replace the entire profile instead of merging with the current kind-0 event
+            </label>
+          </div>
+        <div class="actions">
+          <button type="submit">Publish Profile Update</button>
+        </div>
+        </form>
+        <form action="/" method="get">
+          <button type="submit">Home</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Current Profile</h2>
+        {% if current_profile %}
+        <div class="kv">
+          {% for field, value in current_profile %}
+          <div>{{ field }}</div><div{% if field in ["picture", "banner", "website"] %} class="mono"{% endif %}>{{ value }}</div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p>No kind-0 social profile was found for this signer on the selected relays.</p>
+        {% endif %}
+      </section>
+
+      {% if publish_result %}
+      <section class="panel">
+        <h2>Publish Result</h2>
+        <div class="kv">
+          <div>Event ID</div><div class="mono">{{ publish_result.event_id }}</div>
+          <div>Signer</div><div class="mono">{{ publish_result.signer_npub }}</div>
+          <div>Latest Event ID</div><div class="mono">{{ publish_result.latest_event_id }}</div>
+          <div>Exact Match</div><div>{{ publish_result.exact_match }}</div>
+          <div>Updated Fields</div><div>{{ publish_result.updated_fields|join(", ") if publish_result.updated_fields else "none" }}</div>
+          <div>Removed Fields</div><div>{{ publish_result.removed_fields|join(", ") if publish_result.removed_fields else "none" }}</div>
+        </div>
+        {% if publish_result.ok_results %}
+        <h3>Relay OK Results</h3>
+        <ul>
+          {% for item in publish_result.ok_results %}
+          <li><span class="mono">{{ item.event_id }}</span> success={{ item.success }} message={{ item.message }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </section>
+      {% endif %}
+    </main>
+  </body>
+</html>

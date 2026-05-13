@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ app_title }}</title>
+    <style>
+      :root {
+        --bg: #f5efe3;
+        --panel: #fffaf4;
+        --text: #1f1a14;
+        --accent: #8a5b2d;
+        --border: #d7c3a2;
+      }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, #fde7be 0, transparent 26rem),
+          linear-gradient(180deg, #f8f1e4 0%, var(--bg) 100%);
+      }
+      main {
+        max-width: 54rem;
+        margin: 4rem auto;
+        padding: 0 1.25rem;
+      }
+      .panel {
+        background: color-mix(in srgb, var(--panel) 96%, white);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        padding: 1.5rem;
+        box-shadow: 0 12px 32px rgba(71, 44, 17, 0.08);
+      }
+      h1 {
+        margin-top: 0;
+        font-size: clamp(2rem, 5vw, 3rem);
+        line-height: 1.05;
+      }
+      p {
+        line-height: 1.6;
+      }
+      form {
+        display: grid;
+        gap: 0.9rem;
+        margin-top: 1.25rem;
+      }
+      input[type="file"], input[type="text"] {
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 0.75rem;
+        padding: 0.8rem;
+      }
+      button {
+        width: fit-content;
+        border: 0;
+        border-radius: 999px;
+        padding: 0.8rem 1.2rem;
+        background: var(--accent);
+        color: white;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+      code {
+        background: rgba(138, 91, 45, 0.1);
+        padding: 0.15rem 0.35rem;
+        border-radius: 0.3rem;
+      }
+      .notice {
+        margin-bottom: 1rem;
+        padding: 0.8rem 1rem;
+        border-radius: 0.75rem;
+      }
+      .notice.error {
+        background: #fff1ec;
+        border: 1px solid #e1a18d;
+      }
+      .notice.success {
+        background: #eef8ee;
+        border: 1px solid #9cc39c;
+      }
+      .notice.info {
+        background: #f2f5f7;
+        border: 1px solid #b8c8d3;
+      }
+      .profile-list {
+        margin-top: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      {% if error_message %}
+      <div class="notice error">{{ error_message }}</div>
+      {% endif %}
+      {% if success_message %}
+      <div class="notice success">{{ success_message }}</div>
+      {% endif %}
+      <div class="notice info">
+        This web app is one of four OpenETR delivery surfaces. The intended model is one shared <code>openetr</code> core with four adapters:
+        web app, CLI for human use, CLI for agent use, and API for agent use.
+      </div>
+      <section class="panel">
+        <h1>{{ app_title }}</h1>
+        {% if identity.logged_in %}
+        <p><strong>Logged in:</strong> <code>{{ identity.npub }}</code></p>
+        {% if identity.profile %}
+        <p><strong>Selected profile:</strong> <code>{{ identity.profile }}</code></p>
+        <form action="/profiles/edit" method="get">
+          <button type="submit">Update Selected Social Profile</button>
+        </form>
+        {% endif %}
+        <form action="/logout" method="post">
+          <button type="submit">Logout</button>
+        </form>
+        {% else %}
+        <p>No nsec session is active.</p>
+        <form action="/login" method="post">
+          <input type="text" name="nsec" placeholder="nsec1..." required>
+          <button type="submit">Login with nsec</button>
+        </form>
+        {% endif %}
+        {% if identity.logged_in and available_profiles %}
+        <div class="profile-list">
+          <h2>Available Profiles</h2>
+          <ul>
+            {% for profile in available_profiles %}
+            <li>
+              <strong>{{ profile.name }}</strong>
+              {% if profile.is_active %}(active){% endif %}
+              {% if profile.is_selected %}(selected){% endif %}
+              {% if profile.signer_npub %}
+                <div><span>signer:</span> <code>{{ profile.signer_npub }}</code></div>
+                <div><span>source:</span> {{ profile.signer_source }}</div>
+              {% else %}
+                <div><span>signer:</span> none configured</div>
+              {% endif %}
+              <div>
+                {% if profile.signer_matches_session %}
+                  <strong>usable:</strong> matches current session signer
+                {% else %}
+                  <strong>usable:</strong> session override available
+                {% endif %}
+              </div>
+              {% if profile.can_select %}
+              <form action="/profiles/use" method="post">
+                <input type="hidden" name="profile" value="{{ profile.name }}">
+                <button type="submit">Use this profile</button>
+              </form>
+              {% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+        <p>
+          This FastAPI app lives outside the packaged <code>openetr</code> component so the
+          web layer and its dependencies can evolve independently while still reusing the same
+          shared query, publish, guard, and profile workflows.
+        </p>
+        <p>
+          Upload a file below and perform an OpenETR <code>query-etr</code>-style lookup using
+          the file digest as the object identifier.
+        </p>
+        <form action="/api/query-etr-from-upload" method="post" enctype="multipart/form-data">
+          <input type="file" name="file" required>
+          <input type="text" name="relays" value="{{ default_relays }}">
+          <button type="submit">Query ETR Records</button>
+        </form>
+        {% if identity.logged_in %}
+        <p>
+          Or issue a new ETR origin event using the selected profile signer.
+        </p>
+        <form action="/api/issue-etr-from-upload" method="post" enctype="multipart/form-data">
+          <input type="file" name="file" required>
+          <input type="text" name="relays" value="{{ default_relays }}">
+          <input type="text" name="comment" placeholder="Optional comment">
+          <button type="submit">Issue ETR</button>
+        </form>
+        {% endif %}
+        <p>
+          The methodology for this shared-core approach is described in
+          <code>docs/specs/MULTI_MODALITY_ARCHITECTURE_NOTE.md</code>.
+        </p>
+        <p>Interactive API docs are available at <code>/docs</code>.</p>
+      </section>
+    </main>
+  </body>
+</html>

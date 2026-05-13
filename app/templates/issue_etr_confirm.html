@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ app_title }} Issue Confirmation</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        background: #f8f1e4;
+        color: #1f1a14;
+      }
+      main {
+        max-width: 54rem;
+        margin: 3rem auto;
+        padding: 0 1.25rem;
+      }
+      .panel {
+        background: #fffaf4;
+        border: 1px solid #d7c3a2;
+        border-radius: 1rem;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+      }
+      .warning {
+        background: #fff5e3;
+        border-color: #d1a96f;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        word-break: break-all;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 12rem 1fr;
+        gap: 0.35rem 1rem;
+      }
+      .profile {
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid #d7c3a2;
+      }
+      .profile h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1rem;
+      }
+      .info {
+        background: #f2f5f7;
+        border-color: #b8c8d3;
+      }
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 0.8rem 1.2rem;
+        background: #8a5b2d;
+        color: white;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+      a {
+        color: #8a5b2d;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel info">
+        <p>
+          This confirmation page is the web equivalent of the CLI guard flow.
+          The warning comes from shared <code>openetr</code> guard logic so the same issuance semantics can be reused across the web app, CLI, and future agent-facing interfaces.
+        </p>
+      </section>
+      <section class="panel warning">
+        <h1>Issue ETR Confirmation</h1>
+        <p><strong>{{ guard.warning_message }}</strong></p>
+        <div class="kv">
+          <div>Existing Event</div><div class="mono">{{ guard.latest_event_id }}</div>
+          <div>Existing Issuer</div><div class="mono">{{ guard.latest_issuer_npub }}</div>
+          <div>Object ID</div><div class="mono">{{ object_id }}</div>
+          <div>File</div><div>{{ filename }}</div>
+          <div>Size</div><div>{{ size_bytes }} bytes</div>
+          <div>SHA-256</div><div class="mono">{{ sha256 }}</div>
+          <div>Relays</div><div class="mono">{{ relays }}</div>
+          {% if comment %}
+          <div>Comment</div><div class="mono">{{ comment }}</div>
+          {% endif %}
+        </div>
+        {% if existing_issuer_profile %}
+        <div class="profile">
+          <h2>Existing Issuer Social Profile</h2>
+          <div class="kv">
+            {% for field, value in existing_issuer_profile %}
+            <div>{{ field }}</div><div{% if field in ["picture", "banner", "website"] %} class="mono"{% endif %}>{{ value }}</div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </section>
+
+      <section class="panel">
+        <form action="/api/issue-etr-from-upload?confirm=true" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="relays" value="{{ relays }}">
+          <input type="hidden" name="comment" value="{{ comment }}">
+          <input type="hidden" name="file_digest" value="{{ sha256 }}">
+          <input type="hidden" name="file_name" value="{{ filename }}">
+          <input type="hidden" name="file_size" value="{{ size_bytes }}">
+          <button type="submit">Continue issuing this ETR record</button>
+        </form>
+        <p><a href="/">Cancel and return</a></p>
+      </section>
+    </main>
+  </body>
+</html>

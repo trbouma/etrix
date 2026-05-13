@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
+from typing import Any
 
 import click
 from monstr.client.client import ClientPool
@@ -20,8 +20,6 @@ from openetr.config import (
     USER_CONFIG_PATH,
     load_user_config,
 )
-
-CONTROL_TRANSFER_KIND = 31416
 from openetr.helpers import (
     assert_hex_object_identifier,
     assert_hex_pubkey,
@@ -34,6 +32,7 @@ from openetr.helpers import (
     resolve_keys,
     resolve_query_digest,
 )
+from openetr.services.query_etr import build_query_etr_result
 
 
 def _normalize_nip05(value: str) -> str:
@@ -133,46 +132,6 @@ def _print_profile(profile: dict) -> None:
         click.echo(f"  {key}: {value}")
 
 
-def _transfer_party_from_p_tag(event: Event) -> str | None:
-    candidate = _first_tag_value(event, "p")
-    if candidate is None:
-        return None
-    if len(candidate) != 64:
-        return None
-    try:
-        int(candidate, 16)
-    except ValueError:
-        return None
-    return candidate.lower()
-
-
-def _first_tag_value(event: Event, tag_name: str) -> str | None:
-    values = event.get_tags_value(tag_name)
-    return values[0] if values else None
-
-
-def _group_transfer_events(transfer_events: list[Event]) -> tuple[list[Event], dict[str, list[Event]]]:
-    by_id = {evt.id: evt for evt in transfer_events}
-    children: dict[str, list[Event]] = {}
-    roots: list[Event] = []
-
-    for evt in transfer_events:
-        parent_id = _first_tag_value(evt, "e")
-        if parent_id and parent_id in by_id:
-            children.setdefault(parent_id, []).append(evt)
-        else:
-            roots.append(evt)
-
-    def _sort_key(evt: Event) -> tuple[int, str]:
-        return (evt.created_at or 0, evt.id)
-
-    roots.sort(key=_sort_key)
-    for event_id in children:
-        children[event_id].sort(key=_sort_key)
-
-    return roots, children
-
-
 def _print_event_details(evt: Event, output: str, indent: str = "", verbose: bool = False) -> None:
     if output == "raw":
         click.echo(f"{indent}event:")
@@ -203,61 +162,6 @@ def _print_event_details(evt: Event, output: str, indent: str = "", verbose: boo
 
 def _print_separator(indent: str = "", width: int = 72, char: str = "-") -> None:
     click.echo(f"{indent}{char * width}")
-
-
-def _profile_chain_label(pubkey_hex: str, profile: dict | None) -> str:
-    name = None
-    if profile:
-        name = profile.get("display_name") or profile.get("name")
-    if not name:
-        name = "Unknown"
-    return f"{name}({format_pubkey(pubkey_hex)})"
-
-
-def _event_timestamp_seconds(value) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value.timestamp()
-    if isinstance(value, (int, float)):
-        return float(value)
-    return None
-
-
-def _format_event_date_compact(value) -> str:
-    if isinstance(value, datetime):
-        return value.strftime("%Y%m%d")
-    return "unknown"
-
-
-def _format_elapsed_compact(previous_value, current_value) -> str:
-    previous_seconds = _event_timestamp_seconds(previous_value)
-    current_seconds = _event_timestamp_seconds(current_value)
-    if previous_seconds is None or current_seconds is None:
-        return "?"
-
-    delta = max(0.0, current_seconds - previous_seconds)
-    if delta < 60:
-        return f"{delta:.0f}s"
-
-    minutes = delta / 60
-    if minutes < 60:
-        return f"{minutes:.1f}m" if minutes < 10 and minutes % 1 else f"{minutes:.0f}m"
-
-    hours = delta / 3600
-    if hours < 24:
-        return f"{hours:.1f}h" if hours < 10 or hours % 1 else f"{hours:.0f}h"
-
-    days = delta / 86400
-    return f"{days:.1f}d" if days < 10 or days % 1 else f"{days:.0f}d"
-
-
-def _summary_token_for_control_event(action: str | None, elapsed: str, label: str) -> str:
-    if action == "accept":
-        return f"transfer accept/{elapsed}:{label}"
-    if action == "terminate":
-        return f"terminate/{elapsed}:{label}"
-    return f"transfer initiate/{elapsed}:{label}"
 
 
 async def _run_query_object(
@@ -329,7 +233,6 @@ async def _run_query_etr(
     relays: str,
     digest: str,
     author_pubkey_hex: str | None,
-    highlight_profile_author: bool,
     origin_only: bool,
     verbose: bool,
     limit: int,
@@ -341,81 +244,31 @@ async def _run_query_etr(
     assert_hex_object_identifier(digest)
     if author_pubkey_hex is not None:
         assert_hex_pubkey(author_pubkey_hex)
-    ssl = False if ssl_disable_verify else None
-    all_events_filter = {
-        "kinds": [DEFAULT_KIND],
-        "#o": [digest],
-        "limit": limit,
-    }
-    query_filter = {
-        "kinds": [DEFAULT_KIND],
-        "#o": [digest],
-        "limit": limit,
-    }
-    transfer_events_filter = {
-        "kinds": [CONTROL_TRANSFER_KIND],
-        "#o": [digest],
-        "limit": limit,
-    }
+    result = await build_query_etr_result(
+        digest=digest,
+        relays=relays,
+        timeout=timeout,
+        limit=limit,
+        author_pubkey_hex=author_pubkey_hex,
+        ssl_disable_verify=ssl_disable_verify,
+    )
 
     if verbose:
         click.echo(f"Relays: {relays}")
         click.echo("Scope: object-wide")
         if author_pubkey_hex is not None:
             click.echo(f"Current profile: {format_pubkey(author_pubkey_hex)}")
-        click.echo(f"Relay filter: {query_filter}")
-        click.echo(f"Transfer filter: {transfer_events_filter}")
+        click.echo(f"Relay filter: {result['relay_filter']}")
+        click.echo(f"Transfer filter: {result['transfer_filter']}")
         if digest_file is not None:
             click.echo(f"Digest source: sha256({digest_file})")
+        click.echo(f"Returned {result['count']} event(s)")
 
-    async with ClientPool(
-        relays.split(","),
-        query_timeout=timeout,
-        timeout=timeout,
-        ssl=ssl,
-    ) as client:
-        all_events = await client.query(
-            all_events_filter,
-            emulate_single=True,
-            wait_connect=True,
-            timeout=timeout,
-        )
-        events = await client.query(
-            query_filter,
-            emulate_single=True,
-            wait_connect=True,
-            timeout=timeout,
-        )
-        transfer_events = await client.query(
-            transfer_events_filter,
-            emulate_single=True,
-            wait_connect=True,
-            timeout=timeout,
-        )
-
-    profile_cache: dict[str, dict | None] = {}
-
-    async def _cached_profile(pubkey_hex: str) -> dict | None:
-        if pubkey_hex not in profile_cache:
-            profile_cache[pubkey_hex] = await _fetch_profile(
-                relays=relays,
-                pubkey_hex=pubkey_hex,
-                timeout=timeout,
-                ssl_disable_verify=ssl_disable_verify,
-            )
-        return profile_cache[pubkey_hex]
-
-    Event.sort(all_events, inplace=True, reverse=False)
-    Event.sort(events, inplace=True, reverse=False)
-    Event.sort(transfer_events, inplace=True, reverse=False)
-    if verbose:
-        click.echo(f"Returned {len(events)} event(s)")
-
-    if not events:
+    if result["no_events"]:
         click.echo("0 events found")
         return
 
-    if len(all_events) > 1:
+    if result["warning_multiple_origin_events"]:
         click.secho(
             "WARNING: multiple ETR origin events (kind 31415) were found for this object. "
             "These records are distinguished by issuer and should not be assumed to represent the same ETR. "
@@ -424,50 +277,43 @@ async def _run_query_etr(
             bold=True,
         )
 
-    initial_event = events[0]
+    initial_event = result["initial_event"]
     click.echo("initial etr origin event (kind 31415):")
     _print_separator()
     click.echo(f"object id: {format_object_identifier(digest)}")
-    click.echo(f"origin event id: {format_event_reference(initial_event.id)}")
-    click.echo(f"issuer: {format_pubkey(initial_event.pub_key)}")
-    if highlight_profile_author and author_pubkey_hex is not None and initial_event.pub_key == author_pubkey_hex:
+    click.echo(f"origin event id: {initial_event['event_ref']}")
+    click.echo(f"issuer: {initial_event['author_npub']}")
+    if initial_event.get("is_current_profile_author"):
         click.secho("current profile author", fg="blue", bold=True)
-    profile = await _cached_profile(initial_event.pub_key)
-    if profile:
+    if result["initial_profile"]:
         click.echo("issuer social profile:")
-        for field in ["name", "display_name", "about", "address", "picture", "banner", "website", "nip05", "lud16", "lud06", "lei"]:
-            value = profile.get(field)
-            if value:
-                click.echo(f"  {field}: {value}")
+        for field, value in result["initial_profile"]:
+            click.echo(f"  {field}: {value}")
     else:
         click.echo("issuer social profile: none found")
 
-    d_values = initial_event.get_tags_value("d")
-    o_values = initial_event.get_tags_value("o")
-    click.echo(f"d value: {d_values}")
-    click.echo(f"o value: {o_values}")
-    print_event(initial_event, output)
+    click.echo(f"d value: {initial_event['d_values']}")
+    click.echo(f"o value: {initial_event['o_values']}")
+    print_event(initial_event["raw_event"], output)
     _print_separator()
 
-    if len(events) > 1:
+    if len(result["origin_events"]) > 1:
         click.echo()
         click.echo("matching etr origin events (kind 31415) for these control events:")
-        for index, evt in enumerate(events, start=1):
+        for index, item in enumerate(result["origin_events"], start=1):
+            evt = item["event"]
             _print_separator()
             click.echo(f"row: {index}")
-            click.echo(f"origin event id: {format_event_reference(evt.id)}")
-            click.echo(f"issuer: {format_pubkey(evt.pub_key)}")
-            if highlight_profile_author and author_pubkey_hex is not None and evt.pub_key == author_pubkey_hex:
+            click.echo(f"origin event id: {evt['event_ref']}")
+            click.echo(f"issuer: {evt['author_npub']}")
+            if item.get("is_current_profile_author"):
                 click.secho("current profile author", fg="blue", bold=True)
-            click.echo(f"created_at: {evt.created_at}")
+            click.echo(f"created_at: {evt['created_at']}")
             click.echo(f"object id: {format_object_identifier(digest)}")
-            issuer_profile = await _cached_profile(evt.pub_key)
-            if issuer_profile:
+            if item["issuer_profile"]:
                 click.echo("issuer social profile:")
-                for field in ["name", "display_name", "about", "address", "picture", "banner", "website", "nip05", "lud16", "lud06", "lei"]:
-                    value = issuer_profile.get(field)
-                    if value:
-                        click.echo(f"  {field}: {value}")
+                for field, value in item["issuer_profile"]:
+                    click.echo(f"  {field}: {value}")
             else:
                 click.secho("WARNING: no issuer social profile found for this issuer.", fg="yellow", bold=True)
             _print_separator()
@@ -475,192 +321,99 @@ async def _run_query_etr(
     if origin_only:
         click.echo()
         click.echo("current controller:")
-        click.echo(f"  npub: {format_pubkey(initial_event.pub_key)}")
-        click.echo("  basis: origin issuer")
-        profile = await _fetch_profile(
-            relays=relays,
-            pubkey_hex=initial_event.pub_key,
-            timeout=timeout,
-            ssl_disable_verify=ssl_disable_verify,
-        )
-        if profile:
+        click.echo(f"  npub: {result['current_controller']['npub']}")
+        click.echo(f"  basis: {result['current_controller']['basis']}")
+        if result["current_controller"]["profile"]:
             click.echo("  current controller social profile:")
-            for field in ["name", "display_name", "about", "address", "picture", "banner", "website", "nip05", "lud16", "lud06", "lei"]:
-                value = profile.get(field)
-                if value:
-                    click.echo(f"    {field}: {value}")
+            for field, value in result["current_controller"]["profile"]:
+                click.echo(f"    {field}: {value}")
         return
 
     click.echo()
     click.echo("matching control events (kind 31416):")
-    if not transfer_events:
+    if not result["transfer_groups"]:
         click.echo("No control transfer events were found for this object.")
         click.echo()
         click.echo("current controller:")
-        click.echo(f"  npub: {format_pubkey(initial_event.pub_key)}")
-        click.echo("  basis: origin issuer")
-        if profile:
+        click.echo(f"  npub: {result['current_controller']['npub']}")
+        click.echo(f"  basis: {result['current_controller']['basis']}")
+        if result["current_controller"]["profile"]:
             click.echo("  current controller social profile:")
-            for field in ["name", "display_name", "about", "address", "picture", "banner", "website", "nip05", "lud16", "lud06", "lei"]:
-                value = profile.get(field)
-                if value:
-                    click.echo(f"    {field}: {value}")
+            for field, value in result["current_controller"]["profile"]:
+                click.echo(f"    {field}: {value}")
         return
 
-    roots, children = _group_transfer_events(transfer_events)
-
-    async def _chain_paths_from_event(evt: Event) -> list[list[Event]]:
-        child_events = children.get(evt.id, [])
-        if not child_events:
-            return [[evt]]
-
-        paths: list[list[Event]] = []
-        for child_evt in child_events:
-            for child_path in await _chain_paths_from_event(child_evt):
-                combined = [evt]
-                combined.extend(child_path)
-                paths.append(combined)
-        return paths
-
-    async def _print_summary_control_chain() -> None:
-        click.echo()
-        if digest_file is not None:
-            click.echo(f"summary control chain for {digest_file}:")
-        else:
-            click.echo("summary control chain:")
-        click.echo("  legend: ++ origin, -> transfer initiate/accept, -- terminate, => attest initiate/accept")
-        issuer_profile = await _cached_profile(initial_event.pub_key)
-        issuer_label = _profile_chain_label(initial_event.pub_key, issuer_profile)
-        origin_date = _format_event_date_compact(initial_event.created_at)
-        if not transfer_events:
-            click.echo(f"  ++ origin/{origin_date}:{issuer_label}")
-            return
-
-        for group_index, root_evt in enumerate(roots, start=1):
-            root_paths = await _chain_paths_from_event(root_evt)
-            for path_index, event_path in enumerate(root_paths, start=1):
-                labels = [f"origin/{origin_date}:{issuer_label}"]
-                previous_event = initial_event
-                previous_controller_pubkey_hex = initial_event.pub_key
-                for evt in event_path:
-                    transferee_pubkey_hex = _transfer_party_from_p_tag(evt) or evt.pub_key
-                    action = _first_tag_value(evt, "action")
-                    if action != "terminate" and transferee_pubkey_hex == previous_controller_pubkey_hex:
-                        previous_event = evt
-                        continue
-                    label = _profile_chain_label(transferee_pubkey_hex, await _cached_profile(transferee_pubkey_hex))
-                    elapsed = _format_elapsed_compact(previous_event.created_at, evt.created_at)
-                    labels.append(_summary_token_for_control_event(action, elapsed, label))
-                    previous_event = evt
-                    previous_controller_pubkey_hex = transferee_pubkey_hex
-                prefix = f"  control chain {group_index}"
-                if len(root_paths) > 1:
-                    prefix = f"{prefix}.{path_index}"
-                click.echo(f"{prefix}:")
-                for label_index, label in enumerate(labels):
-                    if label_index == 0:
-                        click.echo(f"    ++ {label}")
-                    else:
-                        marker = "->"
-                        if label.startswith("terminate/"):
-                            marker = "--"
-                        elif label.startswith("attest "):
-                            marker = "=>"
-                        click.echo(f"    {marker} {label}")
-
-    async def _print_transfer_event(evt: Event, row_label: str, depth: int) -> None:
+    def _print_transfer_node(node: dict[str, Any], depth: int = 0) -> None:
         indent = "  " * depth
+        evt = node["event"]
         _print_separator(indent)
-        click.echo(f"{indent}event {row_label}:")
-        click.echo(f"{indent}  event id: {format_event_reference(evt.id)}")
-        click.echo(f"{indent}  author: {format_pubkey(evt.pub_key)}")
-        if highlight_profile_author and author_pubkey_hex is not None and evt.pub_key == author_pubkey_hex:
+        click.echo(f"{indent}event {node['row_label']}:")
+        click.echo(f"{indent}  event id: {evt['event_ref']}")
+        click.echo(f"{indent}  author: {evt['author_npub']}")
+        if node.get("is_current_profile_author"):
             click.secho(f"{indent}  current profile author", fg="blue", bold=True)
-        click.echo(f"{indent}  created_at: {evt.created_at}")
+        click.echo(f"{indent}  created_at: {evt['created_at']}")
         click.echo(f"{indent}  object id: {format_object_identifier(digest)}")
-        action = _first_tag_value(evt, "action")
-        if action:
-            click.echo(f"{indent}  action: {action}")
-        prior_event_id = _first_tag_value(evt, "e")
-        if prior_event_id:
-            click.echo(f"{indent}  prior event id: {format_event_reference(prior_event_id)}")
-
-        issuer_profile = await _cached_profile(evt.pub_key)
-        if issuer_profile:
+        if evt["action"]:
+            click.echo(f"{indent}  action: {evt['action']}")
+        if evt["prior_event_id"]:
+            click.echo(f"{indent}  prior event id: {format_event_reference(evt['prior_event_id'])}")
+        if node["signer_profile"]:
             click.echo(f"{indent}  transfer event signer social profile:")
-            for field in ["name", "display_name", "about", "address", "picture", "banner", "website", "nip05", "lud16", "lud06", "lei"]:
-                value = issuer_profile.get(field)
-                if value:
-                    click.echo(f"{indent}    {field}: {value}")
+            for field, value in node["signer_profile"]:
+                click.echo(f"{indent}    {field}: {value}")
         else:
             click.secho(f"{indent}  WARNING: no transfer event signer social profile found for this author.", fg="yellow", bold=True)
-
-        d_values = evt.get_tags_value("d")
-        o_values = evt.get_tags_value("o")
-        transferee_pubkey_hex = _transfer_party_from_p_tag(evt)
-        if transferee_pubkey_hex is not None:
-            click.echo(f"{indent}  transferee: {format_pubkey(transferee_pubkey_hex)}")
-            transferee_profile = await _cached_profile(transferee_pubkey_hex)
-            if transferee_profile:
+        if evt["transferee_npub"] is not None:
+            click.echo(f"{indent}  transferee: {evt['transferee_npub']}")
+            if node["transferee_profile"]:
                 click.echo(f"{indent}  transferee social profile:")
-                for field in ["name", "display_name", "about", "address", "picture", "banner", "website", "nip05", "lud16", "lud06", "lei"]:
-                    value = transferee_profile.get(field)
-                    if value:
-                        click.echo(f"{indent}    {field}: {value}")
+                for field, value in node["transferee_profile"]:
+                    click.echo(f"{indent}    {field}: {value}")
             else:
                 click.secho(f"{indent}  WARNING: no social profile found for the transferee.", fg="yellow", bold=True)
-        click.echo(f"{indent}  d value: {d_values}")
-        click.echo(f"{indent}  o value: {o_values}")
-        _print_event_details(evt, output, indent=f"{indent}  ", verbose=verbose)
+        click.echo(f"{indent}  d value: {evt['d_values']}")
+        click.echo(f"{indent}  o value: {evt['o_values']}")
+        _print_event_details(evt["raw_event"], output, indent=f"{indent}  ", verbose=verbose)
         _print_separator(indent)
+        for child in node["children"]:
+            _print_transfer_node(child, depth + 1)
 
-        for child_index, child_evt in enumerate(children.get(evt.id, []), start=1):
-            await _print_transfer_event(child_evt, f"{row_label}.{child_index}", depth + 1)
-
-    for group_index, root_evt in enumerate(roots, start=1):
+    for group in result["transfer_groups"]:
         click.echo("=" * 72)
-        click.echo(f"control event group {group_index}:")
-        root_prior_event_id = _first_tag_value(root_evt, "e")
+        click.echo(f"control event group {group['index']}:")
+        root_prior_event_id = group["root_prior_event_id"]
         if root_prior_event_id:
             click.echo(f"  root prior event id: {format_event_reference(root_prior_event_id)}")
         click.echo("  control chain:")
-        await _print_transfer_event(root_evt, str(group_index), 0)
-
-    await _print_summary_control_chain()
-
-    latest_transfer_event = max(
-        transfer_events,
-        key=lambda evt: ((evt.created_at or 0), evt.id),
-    )
-    latest_action = _first_tag_value(latest_transfer_event, "action")
-    if latest_action == "terminate":
-        current_controller_pubkey_hex = None
-        current_controller_basis = "latest control event is a termination"
-    else:
-        current_controller_pubkey_hex = _transfer_party_from_p_tag(latest_transfer_event)
-        current_controller_basis = "latest control event transferee"
-        if current_controller_pubkey_hex is None:
-            current_controller_pubkey_hex = latest_transfer_event.pub_key
-            current_controller_basis = "latest control event signer (no p tag present)"
+        _print_transfer_node(group["root"], 0)
 
     click.echo()
+    if digest_file is not None:
+        click.echo(f"summary control chain for {digest_file}:")
+    else:
+        click.echo("summary control chain:")
+    click.echo("  legend: ++ origin, -> transfer initiate/accept, -- terminate, => attest initiate/accept")
+    for chain in result["summary_control_chains"]:
+        click.echo(f"  {chain['label']}:")
+        for step in chain["steps"]:
+            click.echo(f"    {step['marker']} {step['label']}")
+
+    current_controller = result["current_controller"]
+    click.echo()
     click.echo("current controller:")
-    if current_controller_pubkey_hex is None:
+    if current_controller["npub"] is None:
         click.secho("  npub: none", fg="yellow", bold=True)
     else:
-        click.echo(f"  npub: {format_pubkey(current_controller_pubkey_hex)}")
-    if current_controller_pubkey_hex is None:
-        click.secho(f"  basis: {current_controller_basis}", fg="yellow", bold=True)
+        click.echo(f"  npub: {current_controller['npub']}")
+    if current_controller["npub"] is None:
+        click.secho(f"  basis: {current_controller['basis']}", fg="yellow", bold=True)
     else:
-        click.echo(f"  basis: {current_controller_basis}")
-    if current_controller_pubkey_hex is not None:
-        current_controller_profile = await _cached_profile(current_controller_pubkey_hex)
-        if current_controller_profile:
+        click.echo(f"  basis: {current_controller['basis']}")
+    if current_controller["npub"] is not None and current_controller["profile"]:
             click.echo("  current controller social profile:")
-            for field in ["name", "display_name", "about", "address", "picture", "banner", "website", "nip05", "lud16", "lud06", "lei"]:
-                value = current_controller_profile.get(field)
-                if value:
-                    click.echo(f"    {field}: {value}")
+            for field, value in current_controller["profile"]:
+                click.echo(f"    {field}: {value}")
 
 def _resolve_profile_pubkey(profile: str, author: str | None, as_user: str | None) -> str:
     if author is not None:
@@ -880,7 +633,6 @@ def query_etr(
             relays=resolved_relays,
             digest=resolved_digest,
             author_pubkey_hex=author_pubkey_hex,
-            highlight_profile_author=author_pubkey_hex is not None,
             origin_only=origin,
             verbose=verbose,
             limit=resolved_limit,

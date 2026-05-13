@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ app_title }} Query Result</title>
+    <style>
+      :root {
+        --bg: #f5efe3;
+        --panel: #fffaf4;
+        --text: #1f1a14;
+        --accent: #8a5b2d;
+        --border: #d7c3a2;
+        --muted: #6d6255;
+        --warn: #8a5b2d;
+      }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, #fde7be 0, transparent 26rem),
+          linear-gradient(180deg, #f8f1e4 0%, var(--bg) 100%);
+      }
+      main {
+        max-width: 72rem;
+        margin: 2rem auto 4rem;
+        padding: 0 1.25rem;
+      }
+      .panel {
+        background: color-mix(in srgb, var(--panel) 96%, white);
+        border: 1px solid var(--border);
+        border-radius: 1rem;
+        padding: 1.25rem 1.5rem;
+        box-shadow: 0 12px 32px rgba(71, 44, 17, 0.08);
+        margin-bottom: 1rem;
+      }
+      .warning {
+        border-color: #d1a96f;
+        background: #fff5e3;
+      }
+      .notice {
+        margin-bottom: 1rem;
+        padding: 0.8rem 1rem;
+        border-radius: 0.75rem;
+        background: #eef8ee;
+        border: 1px solid #9cc39c;
+      }
+      .info {
+        background: #f2f5f7;
+        border-color: #b8c8d3;
+      }
+      h1, h2, h3 {
+        margin-top: 0;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 12rem 1fr;
+        gap: 0.35rem 1rem;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        word-break: break-all;
+      }
+      ul {
+        margin-top: 0.35rem;
+      }
+      .event {
+        border-top: 1px dashed var(--border);
+        padding-top: 1rem;
+        margin-top: 1rem;
+      }
+      .tree {
+        margin-left: 1rem;
+        padding-left: 1rem;
+        border-left: 2px solid #eadcc5;
+      }
+      .chain-step {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        margin: 0.15rem 0;
+      }
+      a {
+        color: var(--accent);
+      }
+      code {
+        background: rgba(138, 91, 45, 0.1);
+        padding: 0.15rem 0.35rem;
+        border-radius: 0.3rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel">
+        <div class="notice info">
+          This result page is a web rendering of shared <code>openetr</code> query and guard logic.
+          The goal is for the web app, human CLI, agent CLI, and agent API to produce equivalent semantics from the same core workflows.
+        </div>
+      </section>
+      {% if identity.logged_in %}
+      <section class="panel">
+        <div class="notice">
+          Logged in as <span class="mono">{{ identity.npub }}</span>
+          {% if identity.profile %}
+            with selected profile <span class="mono">{{ identity.profile }}</span>
+          {% endif %}
+          {% if query.current_profile_author_npub %}
+            and using that signer context for query display.
+          {% endif %}
+        </div>
+        {% if available_profiles %}
+        <h2>Available Profiles</h2>
+        <ul>
+          {% for profile in available_profiles %}
+          <li>
+            <strong>{{ profile.name }}</strong>
+            {% if profile.is_active %}(active){% endif %}
+            {% if profile.is_selected %}(selected){% endif %}
+            {% if profile.signer_npub %}
+              <div>signer: <span class="mono">{{ profile.signer_npub }}</span></div>
+              <div>source: {{ profile.signer_source }}</div>
+            {% else %}
+              <div>signer: none configured</div>
+            {% endif %}
+            <div>
+              {% if profile.signer_matches_session %}
+                <strong>usable:</strong> matches current session signer
+              {% else %}
+                <strong>usable:</strong> session override available
+              {% endif %}
+            </div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </section>
+      {% endif %}
+      <section class="panel">
+        <h1>Query ETR Result</h1>
+        <div class="kv">
+          <div class="muted">File</div><div>{{ filename }}</div>
+          <div class="muted">Size</div><div>{{ size_bytes }} bytes</div>
+          <div class="muted">SHA-256</div><div class="mono">{{ sha256 }}</div>
+          <div class="muted">Object ID</div><div class="mono">{{ object_id }}</div>
+          <div class="muted">Relays</div><div class="mono">{{ relays }}</div>
+          <div class="muted">Relay Filter</div><div class="mono">{{ query.relay_filter }}</div>
+          <div class="muted">Transfer Filter</div><div class="mono">{{ query.transfer_filter }}</div>
+          <div class="muted">Returned</div><div>{{ query.count }} event(s)</div>
+        </div>
+      </section>
+
+      {% if issue_result %}
+      <section class="panel">
+        <h2>Issue ETR Result</h2>
+        <div class="kv">
+          <div class="muted">Issued Event ID</div><div class="mono">{{ issue_result.event_id }}</div>
+          <div class="muted">Signer</div><div class="mono">{{ issue_result.signer_npub }}</div>
+          <div class="muted">Comment</div><div class="mono">{{ issue_result.comment }}</div>
+          <div class="muted">Existing Before Publish</div><div>{{ issue_result.existing_count_before_publish }}</div>
+          <div class="muted">Returned After Publish</div><div>{{ issue_result.query_count_after_publish }}</div>
+          {% if issue_result.existing_latest_event_id %}
+          <div class="muted">Latest Existing Event</div><div class="mono">{{ issue_result.existing_latest_event_id }}</div>
+          {% endif %}
+        </div>
+        {% if issue_result.ok_results %}
+        <h3>Relay OK Results</h3>
+        <ul>
+          {% for item in issue_result.ok_results %}
+          <li>
+            <span class="mono">{{ item.event_id }}</span>
+            success={{ item.success }}
+            message={{ item.message }}
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      {% if query.warning_multiple_origin_events %}
+      <section class="panel warning">
+        <strong>Warning:</strong> multiple ETR origin events (kind 31415) were found for this object.
+      </section>
+      {% endif %}
+
+      {% if query.no_events %}
+      <section class="panel">
+        <h2>0 events found</h2>
+        <p class="muted">No matching ETR origin events were returned for this object digest.</p>
+      </section>
+      {% else %}
+      <section class="panel">
+        <h2>Initial ETR Origin Event (kind 31415)</h2>
+        <div class="kv">
+          <div class="muted">Object ID</div><div class="mono">{{ object_id }}</div>
+          <div class="muted">Origin Event ID</div><div class="mono">{{ query.initial_event.event_ref }}</div>
+          <div class="muted">Issuer</div><div class="mono">{{ query.initial_event.author_npub }}</div>
+          {% if query.initial_event.is_current_profile_author %}
+          <div class="muted">Current Session Signer</div><div>Yes</div>
+          {% endif %}
+          <div class="muted">Created At</div><div>{{ query.initial_event.created_at }}</div>
+          <div class="muted">d value</div><div class="mono">{{ query.initial_event.d_values }}</div>
+          <div class="muted">o value</div><div class="mono">{{ query.initial_event.o_values }}</div>
+          <div class="muted">Content</div><div class="mono">{{ query.initial_event.content }}</div>
+        </div>
+        <h3>Issuer Social Profile</h3>
+        {% if query.initial_profile %}
+        <ul>
+          {% for field, value in query.initial_profile %}
+          <li><strong>{{ field }}</strong>: {{ value }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="muted">No issuer social profile found.</p>
+        {% endif %}
+      </section>
+
+      {% if query.origin_events|length > 1 %}
+      <section class="panel">
+        <h2>Matching ETR Origin Events (kind 31415)</h2>
+        {% for item in query.origin_events %}
+        <div class="event">
+          <div class="kv">
+            <div class="muted">Origin Event ID</div><div class="mono">{{ item.event.event_ref }}</div>
+            <div class="muted">Issuer</div><div class="mono">{{ item.event.author_npub }}</div>
+            {% if item.is_current_profile_author %}
+            <div class="muted">Current Session Signer</div><div>Yes</div>
+            {% endif %}
+            <div class="muted">Created At</div><div>{{ item.event.created_at }}</div>
+            <div class="muted">Object ID</div><div class="mono">{{ object_id }}</div>
+            <div class="muted">Content</div><div class="mono">{{ item.event.content }}</div>
+          </div>
+          {% if item.issuer_profile %}
+          <h3>Issuer Social Profile</h3>
+          <ul>
+            {% for field, value in item.issuer_profile %}
+            <li><strong>{{ field }}</strong>: {{ value }}</li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="muted">No issuer social profile found.</p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </section>
+      {% endif %}
+
+      <section class="panel">
+        <h2>Matching Control Events (kind 31416)</h2>
+        {% if not query.transfer_groups %}
+        <p>No control transfer events were found for this object.</p>
+        {% else %}
+        {% macro render_node(node) %}
+          <div class="event">
+            <div class="kv">
+              <div class="muted">Event</div><div>{{ node.row_label }}</div>
+              <div class="muted">Event ID</div><div class="mono">{{ node.event.event_ref }}</div>
+              <div class="muted">Author</div><div class="mono">{{ node.event.author_npub }}</div>
+              {% if node.is_current_profile_author %}<div class="muted">Current Session Signer</div><div>Yes</div>{% endif %}
+              <div class="muted">Created At</div><div>{{ node.event.created_at }}</div>
+              <div class="muted">Object ID</div><div class="mono">{{ object_id }}</div>
+              {% if node.event.action %}<div class="muted">Action</div><div>{{ node.event.action }}</div>{% endif %}
+              {% if node.event.prior_event_id %}<div class="muted">Prior Event ID</div><div class="mono">{{ node.event.prior_event_id }}</div>{% endif %}
+              {% if node.event.transferee_npub %}<div class="muted">Transferee</div><div class="mono">{{ node.event.transferee_npub }}</div>{% endif %}
+              <div class="muted">d value</div><div class="mono">{{ node.event.d_values }}</div>
+              <div class="muted">o value</div><div class="mono">{{ node.event.o_values }}</div>
+              <div class="muted">Content</div><div class="mono">{{ node.event.content }}</div>
+            </div>
+            {% if node.signer_profile %}
+            <h3>Transfer Event Signer Social Profile</h3>
+            <ul>
+              {% for field, value in node.signer_profile %}
+              <li><strong>{{ field }}</strong>: {{ value }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+            {% if node.transferee_profile %}
+            <h3>Transferee Social Profile</h3>
+            <ul>
+              {% for field, value in node.transferee_profile %}
+              <li><strong>{{ field }}</strong>: {{ value }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+            {% if node.children %}
+            <div class="tree">
+              {% for child in node.children %}
+                {{ render_node(child) }}
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+        {% endmacro %}
+
+        {% for group in query.transfer_groups %}
+        <div class="event">
+          <h3>Control Event Group {{ group.index }}</h3>
+          {% if group.root_prior_event_id %}
+          <p><strong>Root Prior Event ID:</strong> <span class="mono">{{ group.root_prior_event_id }}</span></p>
+          {% endif %}
+          {{ render_node(group.root) }}
+        </div>
+        {% endfor %}
+        {% endif %}
+      </section>
+
+      <section class="panel">
+        <h2>Summary Control Chain</h2>
+        {% for chain in query.summary_control_chains %}
+        <div class="event">
+          <h3>{{ chain.label }}</h3>
+          {% for step in chain.steps %}
+          <div class="chain-step">{{ step.marker }} {{ step.label }}</div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </section>
+
+      <section class="panel">
+        <h2>Current Controller</h2>
+        <div class="kv">
+          <div class="muted">Npub</div>
+          <div class="mono">{{ query.current_controller.npub or "none" }}</div>
+          <div class="muted">Basis</div>
+          <div>{{ query.current_controller.basis }}</div>
+        </div>
+        {% if query.current_controller.profile %}
+        <h3>Current Controller Social Profile</h3>
+        <ul>
+          {% for field, value in query.current_controller.profile %}
+          <li><strong>{{ field }}</strong>: {{ value }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      <section class="panel">
+        <a href="/">Run another query</a>
+      </section>
+    </main>
+  </body>
+</html>
