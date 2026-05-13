@@ -84,6 +84,17 @@
         padding: 0.8rem;
         font: inherit;
       }
+      label {
+        display: grid;
+        gap: 0.45rem;
+        font-weight: 700;
+        color: var(--heading);
+      }
+      .field-help {
+        margin: 0;
+        font-size: 0.92rem;
+        color: var(--muted);
+      }
       button {
         width: fit-content;
         border: 0;
@@ -137,8 +148,15 @@
       }
       .dialog-actions {
         display: flex;
-        justify-content: flex-end;
+        justify-content: space-between;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
         margin-top: 1rem;
+      }
+      .copy-status {
+        color: var(--muted);
+        font-size: 0.95rem;
       }
       .settings-note {
         margin-top: 0;
@@ -195,6 +213,11 @@
       }
       .flow-note {
         margin-top: 0;
+      }
+      .section-break {
+        margin: 2rem 0 1rem;
+        padding-top: 1.4rem;
+        border-top: 1px solid rgba(138, 91, 45, 0.16);
       }
       .footer-meta {
         margin-top: 1.5rem;
@@ -295,6 +318,10 @@
         </div>
 
         {% if identity.logged_in and available_profiles %}
+        <div class="section-break">
+          <h2>Profiles</h2>
+        </div>
+        {% if identity.logged_in and available_profiles %}
         <div class="subpanel profile-list">
           <h2>Available Profiles</h2>
           <ul>
@@ -327,15 +354,26 @@
           </ul>
         </div>
         {% endif %}
+        {% endif %}
 
-        <div class="subpanel">
+        <div class="section-break">
           <h2>Settings</h2>
+        </div>
+        <div class="subpanel">
           <p class="settings-note">
             Bootstrap relays are used with the root key to discover and manage relay-backed profiles. Working relays are the default relays used for query and issue actions in this session.
           </p>
           <form action="/settings" method="post">
-            <input type="text" name="bootstrap_relays" value="{{ bootstrap_relays }}" placeholder="Bootstrap relay(s)">
-            <input type="text" name="default_relays" value="{{ default_relays }}" placeholder="Working relay(s)">
+            <label>
+              Bootstrap relay(s)
+              <input type="text" name="bootstrap_relays" value="{{ bootstrap_relays }}" placeholder="wss://relay.example.com">
+              <span class="field-help">Used with the root key for profile discovery, recovery, and relay-backed signer management.</span>
+            </label>
+            <label>
+              Working relay(s)
+              <input type="text" name="default_relays" value="{{ default_relays }}" placeholder="wss://relay.example.com,wss://relay.backup.example.com">
+              <span class="field-help">Used by default for record queries and ETR issue operations in this session.</span>
+            </label>
             <button type="submit">Save Relay Settings</button>
           </form>
         </div>
@@ -351,8 +389,12 @@
         </div>
         {% endif %}
 
-        <div class="subpanel">
+        <div class="section-break">
           <h2>Work With Records</h2>
+        </div>
+
+        <div class="subpanel">
+          <h2>Query ETR</h2>
           <p class="flow-note">
             Upload a file and perform an OpenETR <code>query-etr</code>-style lookup using the file digest as the object identifier.
           </p>
@@ -361,15 +403,22 @@
             <input type="text" name="relays" value="{{ default_relays }}">
             <button type="submit">Query ETR Records</button>
           </form>
-          {% if identity.logged_in %}
+        </div>
+
+        {% if identity.logged_in %}
+        <div class="subpanel">
+          <h2>Issue ETR</h2>
+          <p class="flow-note">
+            Publish a new ETR origin event using the selected profile signer.
+          </p>
           <form action="/api/issue-etr-from-upload" method="post" enctype="multipart/form-data">
             <input type="file" name="file" required>
             <input type="text" name="relays" value="{{ default_relays }}">
             <input type="text" name="comment" placeholder="Optional comment">
             <button type="submit">Issue ETR</button>
           </form>
-          {% endif %}
         </div>
+        {% endif %}
 
         <div class="subpanel">
           <p>
@@ -379,9 +428,9 @@
           </p>
           <p>
             The methodology for this shared-core approach is described in
-            <code>docs/specs/MULTI_MODALITY_ARCHITECTURE_NOTE.md</code>.
+            <a href="https://github.com/trbouma/etrix/blob/main/docs/specs/MULTI_MODALITY_ARCHITECTURE_NOTE.md" target="_blank" rel="noopener noreferrer">MULTI_MODALITY_ARCHITECTURE_NOTE.md</a>.
           </p>
-          <p>Interactive API docs are available at <code>/docs</code>.</p>
+          <p>Interactive API docs are available at <a href="/docs">/docs</a>.</p>
         </div>
         <div class="footer-meta">
           Latest commit: <code>{{ git_commit }}</code>
@@ -394,25 +443,50 @@
       <dialog id="backup-key-dialog">
         <div class="dialog-body">
           <h2>Backup Key</h2>
-          <p>Store this key in a safe place. If your session ends, you will need it to restore access.</p>
+          <p>Store this recovery material in a safe place. If your session ends, you will need it to restore access to your relay-backed profiles and signer records.</p>
           <p><strong>Bootstrap relays for recovery:</strong></p>
           <p><code>{{ bootstrap_relays }}</code></p>
           <p>Your root-managed profile data can be discovered again from these relay endpoints.</p>
-          <p><strong>Current signer nsec:</strong></p>
-          <p><code>{{ identity.nsec }}</code></p>
-          {% if identity.root_nsec and identity.root_nsec != identity.nsec %}
           <p><strong>Root admin nsec:</strong></p>
-          <p><code>{{ identity.root_nsec }}</code></p>
-          <p>This root key manages your relay-backed profiles and signer records. Keep it separate from operational profile keys.</p>
-          {% endif %}
+          <p><code>{{ identity.root_nsec or identity.nsec }}</code></p>
+          <p>This root key manages your relay-backed profiles and signer records. Keep it separate from operational profile keys and do not use it as a public-facing identity.</p>
           <div class="dialog-actions">
-            <form method="dialog">
-              <button type="submit">Close</button>
-            </form>
+            <span class="copy-status" id="backup-copy-status" aria-live="polite"></span>
+            <div class="button-row" style="margin-top:0;">
+              <button
+                type="button"
+                class="ghost-button"
+                onclick='copyBackupMaterial({{ {"bootstrap_relays": bootstrap_relays, "root_nsec": identity.root_nsec or identity.nsec} | tojson | safe }})'
+              >
+                Copy to Clipboard
+              </button>
+              <form method="dialog">
+                <button type="submit">Close</button>
+              </form>
+            </div>
           </div>
         </div>
       </dialog>
       {% endif %}
     </main>
+    <script>
+      async function copyBackupMaterial(payload) {
+        const text = [
+          "OpenETR Recovery Material",
+          "",
+          `Bootstrap relays: ${payload.bootstrap_relays}`,
+          `Root admin nsec: ${payload.root_nsec}`,
+          "",
+          "Store this material in a safe place.",
+        ].join("\n");
+        const status = document.getElementById("backup-copy-status");
+        try {
+          await navigator.clipboard.writeText(text);
+          if (status) status.textContent = "Copied recovery material.";
+        } catch (error) {
+          if (status) status.textContent = "Clipboard copy failed.";
+        }
+      }
+    </script>
   </body>
 </html>
