@@ -2,7 +2,7 @@ import click
 from openetr.commands.core import alias_group, bootstrap, get_object_id, info, init_config, migrate_config, profile_group, set_config, trivia, validate, version, whoami
 from openetr.commands.publish import issue_etr, publish_object, publish_profile, terminate_etr, transfer_group
 from openetr.commands.query import query_etr, query_object, query_profile, verify
-from openetr.config import HOME_RELAY_KEY, ROOT_NSEC_KEY, USER_CONFIG_PATH, ensure_root_bootstrap
+from openetr.config import HOME_RELAY_KEY, ROOT_NSEC_KEY, USER_CONFIG_PATH, ensure_root_bootstrap, runtime_bootstrap_enabled
 
 
 @click.group(invoke_without_command=True)
@@ -21,7 +21,7 @@ def main(ctx: click.Context, as_root: str | None, home_relays: str | None) -> No
     if home_relays:
         ctx.obj[HOME_RELAY_KEY] = home_relays
 
-    has_runtime_bootstrap = bool(as_root and home_relays)
+    has_runtime_bootstrap = runtime_bootstrap_enabled()
 
     if ctx.invoked_subcommand in {"init-config", "bootstrap"}:
         return

@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from openetr.config import ACTIVE_PROFILE_KEY, CONFIG_AS_USER_KEY, DEFAULT_LIMIT, DEFAULT_PROFILE_NAME, DEFAULT_QUERY_TIMEOUT, DEFAULT_RELAYS, PROFILES_KEY, _async_load_profile_secret, load_user_config
+from openetr.config import DEFAULT_LIMIT, DEFAULT_PROFILE_NAME, DEFAULT_QUERY_TIMEOUT, DEFAULT_RELAYS, _async_load_profile_record, _async_load_profile_secret, _async_load_profiles_index, load_user_config, packaged_defaults
 from openetr.guards import evaluate_issue_etr_guard
 from openetr.helpers import format_object_identifier, format_pubkey, resolve_keys
 from openetr.services.issue_etr import publish_issue_etr
@@ -82,19 +82,37 @@ def normalize_relays_form(relays: str = Form(DEFAULT_RELAYS)) -> str:
     return normalized or DEFAULT_RELAYS
 
 
-def local_profile_relays(profile_name: str | None) -> str:
-    if not profile_name:
-        return DEFAULT_RELAYS
+async def relay_profile_names() -> tuple[str, list[str]]:
     config = load_user_config()
-    return str(config.get(PROFILES_KEY, {}).get(profile_name, {}).get("relays") or DEFAULT_RELAYS)
+    try:
+        index = await _async_load_profiles_index(config)
+    except click.ClickException:
+        return DEFAULT_PROFILE_NAME, []
+    if index is None:
+        return DEFAULT_PROFILE_NAME, []
+    return index.active_profile, sorted(index.profiles)
+
+
+async def relay_profile_config(profile_name: str | None) -> dict[str, Any]:
+    resolved = packaged_defaults()
+    if not profile_name:
+        return resolved
+    config = load_user_config()
+    try:
+        record = await _async_load_profile_record(profile_name, config)
+    except click.ClickException:
+        return resolved
+    if record is None:
+        return resolved
+    values = record.model_dump(exclude_none=True)
+    values.pop("schema_version", None)
+    values.pop("profile", None)
+    resolved.update(values)
+    return resolved
 
 
 async def resolve_profile_signer_nsec(profile_name: str, config: dict | None = None) -> tuple[str | None, str]:
     resolved_config = config or load_user_config()
-    local_value = resolved_config.get(PROFILES_KEY, {}).get(profile_name, {}).get(CONFIG_AS_USER_KEY)
-    if local_value:
-        return local_value, "local"
-
     try:
         remote_value = await _async_load_profile_secret(profile_name, resolved_config)
     except click.ClickException:
@@ -110,8 +128,7 @@ async def get_available_profiles(identity: dict[str, Any]) -> list[dict[str, Any
         return []
 
     config = load_user_config()
-    active_profile = config.get(ACTIVE_PROFILE_KEY, DEFAULT_PROFILE_NAME)
-    profile_names = sorted(config.get(PROFILES_KEY, {}).keys())
+    active_profile, profile_names = await relay_profile_names()
     profiles: list[dict[str, Any]] = []
     for profile_name in profile_names:
         signer_nsec, signer_source = await resolve_profile_signer_nsec(profile_name, config)
@@ -267,7 +284,7 @@ async def edit_profile_page(
         template_context["error_message"] = "Select a profile before editing its social profile."
         return templates.TemplateResponse(request, "index.html", template_context, status_code=400)
 
-    relays = local_profile_relays(identity["profile"])
+    relays = str((await relay_profile_config(identity["profile"])).get("relays") or DEFAULT_RELAYS)
     current_profile = await fetch_profile(
         relays=relays,
         pubkey_hex=identity["pubkey_hex"],

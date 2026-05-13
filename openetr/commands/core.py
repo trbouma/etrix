@@ -36,6 +36,7 @@ from openetr.config import (
     load_user_config,
     remove_local_profile_secret,
     render_user_config_template,
+    runtime_bootstrap_enabled,
     set_active_profile,
     sync_aliases_index,
     sync_profile_record,
@@ -682,9 +683,10 @@ def profile_set(
     lei: str | None,
 ) -> None:
     """Update or show a profile."""
+    stateless_runtime = runtime_bootstrap_enabled()
     config = hydrate_local_profiles_from_index(load_user_config())
     profile_name = profile or get_active_profile_name(config)
-    profile_exists = profile_name in config.get(PROFILES_KEY, {})
+    profile_exists = profile_name in list_profiles(config)
     updates = _profile_updates(
         as_user=as_user,
         relays=relays,
@@ -715,7 +717,10 @@ def profile_set(
             write_user_config(config)
             sync_aliases_index(config)
             sync_profiles_index(config)
-            click.echo(f"Created profile {profile_name} in {USER_CONFIG_PATH}")
+            if stateless_runtime:
+                click.echo(f"Created profile {profile_name} in relay-backed configuration.")
+            else:
+                click.echo(f"Created profile {profile_name} in {USER_CONFIG_PATH}")
             if generated_secret:
                 click.echo("Generated a new nsec for the profile.")
                 click.echo(f"Added alias {normalize_alias(profile_name)} for the profile signer.")
@@ -751,7 +756,10 @@ def profile_set(
     sync_aliases_index(config)
     sync_profiles_index(config)
     action = "Created" if not profile_exists else "Updated"
-    click.echo(f"{action} profile {profile_name} in {USER_CONFIG_PATH}")
+    if stateless_runtime:
+        click.echo(f"{action} profile {profile_name} in relay-backed configuration.")
+    else:
+        click.echo(f"{action} profile {profile_name} in {USER_CONFIG_PATH}")
     if generated_secret:
         click.echo("Generated a new nsec for the profile.")
         click.echo(f"Added alias {normalize_alias(profile_name)} for the profile signer.")

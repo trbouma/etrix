@@ -69,6 +69,8 @@ Run it:
 ```sh
 docker run --rm -p 8000:8000 \
   -e OPENETR_APP_SESSION_SECRET=change-me \
+  -e OPENETR_ROOT_NSEC=your-root-nsec \
+  -e OPENETR_HOME_RELAYS=wss://your-home-relay \
   openetr-web
 ```
 
@@ -87,21 +89,22 @@ docker compose up --build
 
 It uses the same build context and `gunicorn` entrypoint as the standalone Docker run.
 
-The Compose file also mounts your local OpenETR config directory into the container:
-
-```sh
-${HOME}/.openetr -> /root/.openetr
-```
-
-That lets the container see the same profiles and root configuration as your local development environment.
-
 If you want to override the session secret:
 
 ```sh
 OPENETR_APP_SESSION_SECRET=change-me docker compose up --build
 ```
 
-If you change your local OpenETR config and want the container to pick it up cleanly, restart the service:
+For stateless relay-backed operation, also provide the root bootstrap and home relays as environment variables:
+
+```sh
+OPENETR_APP_SESSION_SECRET=change-me \
+OPENETR_ROOT_NSEC=your-root-nsec \
+OPENETR_HOME_RELAYS=wss://your-home-relay \
+docker compose up --build
+```
+
+If you change the runtime bootstrap values, restart the service:
 
 ```sh
 docker compose down
@@ -120,3 +123,19 @@ Compose is now included mainly for convenience and for future growth. It becomes
 - a separate API container
 - local development volumes and overrides
 - observability or background workers
+
+## Stateless Runtime Model
+
+The intended container deployment model is stateless:
+
+- no mounted `~/.openetr` directory
+- no local `config.yaml` required in the container
+- relay-backed profiles, profile config, and signer secrets
+- runtime bootstrap supplied by environment variables
+
+For the web app to discover relay-backed profiles and encrypted profile signer records, supply:
+
+- `OPENETR_ROOT_NSEC`
+- `OPENETR_HOME_RELAYS`
+
+The browser session may still hold the logged-in `nsec` in a signed cookie for this demo app, but the container itself does not rely on local profile or session files.

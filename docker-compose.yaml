@@ -6,10 +6,10 @@ services:
     image: openetr-web
     ports:
       - "8000:8000"
-    volumes:
-      - ${HOME}/.openetr:/root/.openetr:ro
     environment:
       OPENETR_APP_SESSION_SECRET: ${OPENETR_APP_SESSION_SECRET:-openetr-demo-session-secret}
+      OPENETR_ROOT_NSEC: ${OPENETR_ROOT_NSEC:-}
+      OPENETR_HOME_RELAYS: ${OPENETR_HOME_RELAYS:-}
     command:
       - gunicorn
       - app.main:app

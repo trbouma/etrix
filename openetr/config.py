@@ -3,6 +3,7 @@ from copy import deepcopy
 from importlib.resources import files
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import click
@@ -56,10 +57,18 @@ def _normalize_relays(relays: str | list[str] | tuple[str, ...] | None) -> list[
 
 
 def _runtime_bootstrap_overrides() -> dict[str, str]:
+    overrides: dict[str, str] = {}
+    env_root = os.environ.get("OPENETR_ROOT_NSEC")
+    env_home_relays = os.environ.get("OPENETR_HOME_RELAYS")
+    if env_root:
+        overrides[ROOT_NSEC_KEY] = env_root
+    if env_home_relays:
+        overrides[HOME_RELAY_KEY] = env_home_relays
+
     ctx = click.get_current_context(silent=True)
-    if ctx is None:
-        return {}
-    return dict(ctx.obj or {})
+    if ctx is not None:
+        overrides.update(dict(ctx.obj or {}))
+    return overrides
 
 
 def runtime_bootstrap_enabled() -> bool:
@@ -278,8 +287,11 @@ def list_profiles(config: dict | None = None) -> list[str]:
 def get_profile_config(profile: str | None = None, config: dict | None = None) -> dict:
     config = config or load_user_config()
     profile_name = profile or get_active_profile_name(config)
+    stateless_runtime = runtime_bootstrap_enabled()
     profiles = config.get(PROFILES_KEY, {})
-    if profile_name not in profiles:
+    if stateless_runtime:
+        profile_values = {}
+    elif profile_name not in profiles:
         index = load_profiles_index(config)
         if index is None or profile_name not in index.profiles:
             raise click.ClickException(f"profile '{profile_name}' was not found in {USER_CONFIG_PATH}")
@@ -828,8 +840,10 @@ def delete_profile_secret(profile: str, config: dict | None = None) -> bool:
 def get_profile_signer_nsec(profile: str | None = None, config: dict | None = None) -> str | None:
     config = config or load_user_config()
     profile_name = profile or get_active_profile_name(config)
-    local_value = config.get(PROFILES_KEY, {}).get(profile_name, {}).get(CONFIG_AS_USER_KEY)
     remote_value = load_profile_secret(profile_name, config)
+    if runtime_bootstrap_enabled():
+        return remote_value
+    local_value = config.get(PROFILES_KEY, {}).get(profile_name, {}).get(CONFIG_AS_USER_KEY)
     return remote_value or local_value
 
 
