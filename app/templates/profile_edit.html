@@ -4,6 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_title }} Profile Editor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
       :root {
         --bg: #f5efe3;
@@ -11,10 +14,12 @@
         --text: #1f1a14;
         --accent: #8a5b2d;
         --border: #d7c3a2;
+        --muted: #675c4d;
+        --heading: #18130d;
       }
       body {
         margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
+        font-family: "Manrope", sans-serif;
         color: var(--text);
         background:
           radial-gradient(circle at top left, #fde7be 0, transparent 26rem),
@@ -28,10 +33,18 @@
       .panel {
         background: color-mix(in srgb, var(--panel) 96%, white);
         border: 1px solid var(--border);
-        border-radius: 1rem;
+        border-radius: 1.35rem;
         padding: 1.5rem;
         box-shadow: 0 12px 32px rgba(71, 44, 17, 0.08);
         margin-bottom: 1rem;
+      }
+      h1, h2, h3 {
+        color: var(--heading);
+        letter-spacing: -0.035em;
+      }
+      p {
+        color: var(--muted);
+        line-height: 1.7;
       }
       .notice {
         margin-bottom: 1rem;
@@ -112,11 +125,29 @@
           grid-template-columns: 1fr;
         }
       }
+      @media (max-width: 640px) {
+        main {
+          margin: 1.75rem auto 2.5rem;
+          padding: 0 0.9rem;
+        }
+        .panel {
+          padding: 1.1rem;
+          border-radius: 1.1rem;
+        }
+      }
       .top-nav {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 1rem;
+      }
+      .eyebrow {
+        margin: 0 0 0.65rem;
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
       }
     </style>
   </head>
@@ -138,9 +169,10 @@
       </div>
 
       <section class="panel">
+        <p class="eyebrow">OpenETR</p>
         <h1>Update Profile</h1>
         <p><strong>Selected profile:</strong> <code>{{ profile_name }}</code></p>
-        <p><strong>Signer:</strong> <code>{{ identity.npub }}</code></p>
+        <p><strong>Signer:</strong> <code title="{{ identity.npub }}">{{ identity.npub | short_id }}</code></p>
         <p><strong>Relays:</strong> <span class="mono">{{ relays }}</span></p>
         <p>Blank fields are removed from the merged profile when you publish. Enable replace mode to publish only the fields shown in this form.</p>
         <p>The design note for this multi-modality approach lives in <code>docs/specs/MULTI_MODALITY_ARCHITECTURE_NOTE.md</code>.</p>
@@ -226,7 +258,7 @@
         <h2>Publish Result</h2>
         <div class="kv">
           <div>Event ID</div><div class="mono">{{ publish_result.event_id }}</div>
-          <div>Signer</div><div class="mono">{{ publish_result.signer_npub }}</div>
+          <div>Signer</div><div class="mono" title="{{ publish_result.signer_npub }}">{{ publish_result.signer_npub | short_id }}</div>
           <div>Latest Event ID</div><div class="mono">{{ publish_result.latest_event_id }}</div>
           <div>Exact Match</div><div>{{ publish_result.exact_match }}</div>
           <div>Updated Fields</div><div>{{ publish_result.updated_fields|join(", ") if publish_result.updated_fields else "none" }}</div>

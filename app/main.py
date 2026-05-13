@@ -9,6 +9,7 @@ import click
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.templating import Jinja2Templates
 from monstr.encrypt import Keys
+from starlette.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from openetr.config import DEFAULT_LIMIT, DEFAULT_PROFILE_NAME, DEFAULT_QUERY_TIMEOUT, DEFAULT_RELAYS, _async_load_profile_record, _async_load_profile_secret, _async_load_profiles_index, load_user_config, packaged_defaults, reset_runtime_bootstrap_overrides, set_runtime_bootstrap_overrides
@@ -26,10 +27,13 @@ NOBJ_PREFIX = "nobj"
 SESSION_ROOT_NSEC_KEY = "openetr_root_nsec"
 SESSION_SIGNER_NSEC_KEY = "openetr_signer_nsec"
 SESSION_PROFILE_KEY = "openetr_profile"
+SESSION_BOOTSTRAP_RELAYS_KEY = "openetr_bootstrap_relays"
+SESSION_DEFAULT_RELAYS_KEY = "openetr_default_relays"
 SESSION_SECRET = os.environ.get("OPENETR_APP_SESSION_SECRET", "openetr-demo-session-secret")
 SITE_URL = os.environ.get("OPENETR_SITE_URL", "https://trbouma.github.io/openetr/")
 GIT_COMMIT = os.environ.get("OPENETR_GIT_COMMIT", "unknown")
 TEMPLATE_DIR = Path(__file__).parent / "templates"
+ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 
 app = FastAPI(
     title=APP_TITLE,
@@ -37,6 +41,7 @@ app = FastAPI(
     version="0.1.0",
 )
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET)
+app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 
@@ -46,28 +51,67 @@ def bytes_to_nobj(data: bytes, prefix: str = NOBJ_PREFIX) -> str:
     converted = bech32.convertbits(as_int, 8, 5)
     return bech32.bech32_encode(prefix, converted)
 
+
+def short_id(value: str | None, head: int = 12, tail: int = 8) -> str:
+    if not value:
+        return ""
+    if len(value) <= head + tail + 1:
+        return value
+    return f"{value[:head]}...{value[-tail:]}"
+
+
+templates.env.filters["short_id"] = short_id
+
 def session_identity(request: Request) -> dict[str, Any]:
     root_nsec = request.session.get(SESSION_ROOT_NSEC_KEY)
     signer_nsec = request.session.get(SESSION_SIGNER_NSEC_KEY)
+    bootstrap_relays = request.session.get(SESSION_BOOTSTRAP_RELAYS_KEY) or os.environ.get("OPENETR_HOME_RELAYS", DEFAULT_RELAYS)
+    default_relays = request.session.get(SESSION_DEFAULT_RELAYS_KEY) or DEFAULT_RELAYS
     if not root_nsec and not signer_nsec:
-        return {"logged_in": False, "nsec": None, "npub": None, "pubkey_hex": None, "root_nsec": None}
+        return {
+            "logged_in": False,
+            "nsec": None,
+            "npub": None,
+            "pubkey_hex": None,
+            "root_nsec": None,
+            "bootstrap_relays": bootstrap_relays,
+            "default_relays": default_relays,
+        }
 
     effective_nsec = signer_nsec or root_nsec
     if effective_nsec is None:
-        return {"logged_in": False, "nsec": None, "npub": None, "pubkey_hex": None, "root_nsec": None}
+        return {
+            "logged_in": False,
+            "nsec": None,
+            "npub": None,
+            "pubkey_hex": None,
+            "root_nsec": None,
+            "bootstrap_relays": bootstrap_relays,
+            "default_relays": default_relays,
+        }
 
     try:
         keys = resolve_keys(effective_nsec)
     except click.ClickException:
         request.session.pop(SESSION_ROOT_NSEC_KEY, None)
         request.session.pop(SESSION_SIGNER_NSEC_KEY, None)
-        return {"logged_in": False, "nsec": None, "npub": None, "pubkey_hex": None, "root_nsec": None}
+        return {
+            "logged_in": False,
+            "nsec": None,
+            "npub": None,
+            "pubkey_hex": None,
+            "root_nsec": None,
+            "bootstrap_relays": bootstrap_relays,
+            "default_relays": default_relays,
+        }
 
     return {
         "logged_in": True,
         "nsec": effective_nsec,
         "root_nsec": root_nsec,
         "signer_nsec": signer_nsec,
+        "bootstrap_relays": bootstrap_relays,
+        "default_relays": default_relays,
         "npub": keys.public_key_bech32(),
         "pubkey_hex": keys.public_key_hex(),
         "profile": request.session.get(SESSION_PROFILE_KEY),
@@ -84,7 +128,7 @@ def session_bootstrap(identity: dict[str, Any]):
     if not root_nsec:
         yield
         return
-    home_relays = os.environ.get("OPENETR_HOME_RELAYS", DEFAULT_RELAYS)
+    home_relays = identity.get("bootstrap_relays") or os.environ.get("OPENETR_HOME_RELAYS", DEFAULT_RELAYS)
     token = set_runtime_bootstrap_overrides(root_nsec=root_nsec, home_relays=home_relays)
     try:
         yield
@@ -101,7 +145,8 @@ async def get_default_template_context(
         "app_title": APP_TITLE,
         "site_url": SITE_URL,
         "git_commit": GIT_COMMIT,
-        "default_relays": DEFAULT_RELAYS,
+        "default_relays": identity.get("default_relays") or DEFAULT_RELAYS,
+        "bootstrap_relays": identity.get("bootstrap_relays") or os.environ.get("OPENETR_HOME_RELAYS", DEFAULT_RELAYS),
         "identity": identity,
         "available_profiles": available_profiles,
         "error_message": None,
@@ -114,6 +159,28 @@ async def get_default_template_context(
 def normalize_relays_form(relays: str = Form(DEFAULT_RELAYS)) -> str:
     normalized = ",".join(relay.strip() for relay in relays.split(",") if relay.strip())
     return normalized or DEFAULT_RELAYS
+
+
+@app.post("/settings")
+async def update_settings(
+    request: Request,
+    bootstrap_relays: str = Form(""),
+    default_relays: str = Form(""),
+    template_context: dict[str, Any] = Depends(get_default_template_context),
+):
+    normalized_bootstrap_relays = ",".join(relay.strip() for relay in bootstrap_relays.split(",") if relay.strip())
+    normalized_default_relays = ",".join(relay.strip() for relay in default_relays.split(",") if relay.strip())
+
+    request.session[SESSION_BOOTSTRAP_RELAYS_KEY] = normalized_bootstrap_relays or os.environ.get("OPENETR_HOME_RELAYS", DEFAULT_RELAYS)
+    request.session[SESSION_DEFAULT_RELAYS_KEY] = normalized_default_relays or DEFAULT_RELAYS
+
+    template_context = await get_default_template_context(session_identity(request))
+    template_context["success_message"] = "Updated relay settings for this session."
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        template_context,
+    )
 
 
 async def relay_profile_names() -> tuple[str, list[str]]:

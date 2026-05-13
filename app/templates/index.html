@@ -4,6 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_title }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
       :root {
         --bg: #f5efe3;
@@ -11,34 +14,63 @@
         --text: #1f1a14;
         --accent: #8a5b2d;
         --border: #d7c3a2;
+        --muted: #675c4d;
+        --heading: #18130d;
       }
       body {
         margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
+        font-family: "Manrope", sans-serif;
         color: var(--text);
         background:
-          radial-gradient(circle at top left, #fde7be 0, transparent 26rem),
+          radial-gradient(circle at top left, rgba(244, 198, 112, 0.22) 0, transparent 24rem),
+          radial-gradient(circle at top right, rgba(166, 118, 58, 0.08) 0, transparent 20rem),
           linear-gradient(180deg, #f8f1e4 0%, var(--bg) 100%);
       }
       main {
-        max-width: 54rem;
+        max-width: 62rem;
         margin: 4rem auto;
         padding: 0 1.25rem;
       }
       .panel {
         background: color-mix(in srgb, var(--panel) 96%, white);
         border: 1px solid var(--border);
+        border-radius: 1.4rem;
+        padding: 1.75rem;
+        box-shadow: 0 18px 44px rgba(71, 44, 17, 0.08);
+      }
+      .subpanel {
+        padding: 1.15rem 1.2rem;
+        border: 1px solid rgba(138, 91, 45, 0.14);
         border-radius: 1rem;
-        padding: 1.5rem;
-        box-shadow: 0 12px 32px rgba(71, 44, 17, 0.08);
+        background: rgba(255, 255, 255, 0.45);
+        margin-top: 1.25rem;
+      }
+      .subpanel h2 {
+        margin-bottom: 0.75rem;
+      }
+      .subpanel form:first-of-type,
+      .subpanel p:first-of-type {
+        margin-top: 0;
+      }
+      h1, h2 {
+        margin-top: 0;
+        color: var(--heading);
+        letter-spacing: -0.04em;
       }
       h1 {
-        margin-top: 0;
-        font-size: clamp(2rem, 5vw, 3rem);
-        line-height: 1.05;
+        margin-bottom: 0.35rem;
+        font-size: clamp(2.8rem, 8vw, 5rem);
+        line-height: 0.95;
+        font-weight: 800;
+      }
+      h2 {
+        font-size: 1.15rem;
+        line-height: 1.1;
+        font-weight: 700;
       }
       p {
-        line-height: 1.6;
+        line-height: 1.7;
+        color: var(--muted);
       }
       form {
         display: grid;
@@ -50,21 +82,66 @@
         border: 1px solid var(--border);
         border-radius: 0.75rem;
         padding: 0.8rem;
+        font: inherit;
       }
       button {
         width: fit-content;
         border: 0;
         border-radius: 999px;
-        padding: 0.8rem 1.2rem;
+        padding: 0.9rem 1.3rem;
         background: var(--accent);
         color: white;
-        font-size: 1rem;
+        font: inherit;
+        font-weight: 700;
         cursor: pointer;
+        box-shadow: 0 8px 24px rgba(138, 91, 45, 0.22);
+      }
+      .button-row {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 1rem;
+      }
+      .button-row form {
+        margin-top: 0;
+      }
+      .ghost-button {
+        background: transparent;
+        color: var(--accent);
+        border: 1px solid rgba(138, 91, 45, 0.28);
+        box-shadow: none;
       }
       code {
         background: rgba(138, 91, 45, 0.1);
         padding: 0.15rem 0.35rem;
         border-radius: 0.3rem;
+        overflow-wrap: anywhere;
+      }
+      dialog {
+        width: min(36rem, calc(100vw - 2rem));
+        border: 1px solid var(--border);
+        border-radius: 1.2rem;
+        padding: 0;
+        background: var(--panel);
+        box-shadow: 0 28px 80px rgba(71, 44, 17, 0.2);
+      }
+      dialog::backdrop {
+        background: rgba(31, 26, 20, 0.42);
+      }
+      .dialog-body {
+        padding: 1.4rem;
+      }
+      .dialog-body h2 {
+        margin-bottom: 0.65rem;
+      }
+      .dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 1rem;
+      }
+      .settings-note {
+        margin-top: 0;
       }
       .notice {
         margin-bottom: 1rem;
@@ -100,18 +177,70 @@
         text-decoration: none;
         font-weight: 600;
       }
+      .eyebrow {
+        margin: 0 0 0.85rem;
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .hero-subtitle {
+        margin: 0 0 1.35rem;
+        max-width: 44rem;
+        font-size: 1.05rem;
+      }
+      .page-hero {
+        margin: 0 0 1.5rem;
+      }
+      .flow-note {
+        margin-top: 0;
+      }
       .footer-meta {
         margin-top: 1.5rem;
         color: #6d6255;
         font-size: 0.95rem;
+        padding-top: 1rem;
+        border-top: 1px solid rgba(138, 91, 45, 0.14);
+      }
+      .footer-mark {
+        margin-top: 1.35rem;
+        display: flex;
+        justify-content: center;
+      }
+      .footer-mark img {
+        width: 4.5rem;
+        height: auto;
+        opacity: 0.92;
+        filter: drop-shadow(0 10px 18px rgba(71, 44, 17, 0.12));
+      }
+      @media (max-width: 640px) {
+        main {
+          margin: 2rem auto 3rem;
+          padding: 0 0.9rem;
+        }
+        .panel {
+          padding: 1.2rem;
+          border-radius: 1.1rem;
+        }
+        .top-nav {
+          justify-content: flex-start;
+        }
       }
     </style>
   </head>
   <body>
     <main>
       <div class="top-nav">
-        <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">Open GitHub Pages Site</a>
+        <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">GitHub</a>
       </div>
+      <header class="page-hero">
+        <p class="eyebrow">Durable Control. Portable Records.</p>
+        <h1>OpenETR</h1>
+        <p class="hero-subtitle">
+          A formal working surface for relay-backed profiles, portable records, and transferable control.
+        </p>
+      </header>
       {% if error_message %}
       <div class="notice error">{{ error_message }}</div>
       {% endif %}
@@ -127,7 +256,7 @@
       {% if created_profile %}
       <div class="notice warning">
         <strong>Created profile:</strong> <code>{{ created_profile.profile_name }}</code><br>
-        <strong>Profile signer:</strong> <code>{{ created_profile.signer_npub }}</code><br>
+        <strong>Profile signer:</strong> <code title="{{ created_profile.signer_npub }}">{{ created_profile.signer_npub | short_id }}</code><br>
         <strong>Profile relays:</strong> <code>{{ created_profile.relays }}</code><br>
         <strong>Important:</strong> the new profile signer secret was generated and stored relay-backed under your root session context, and the new profile is now selected for this browser session.
         If you want independent recovery for this profile signer outside the relay-backed root-managed model, export or otherwise safeguard its signer material before relying on it operationally.
@@ -138,30 +267,35 @@
         web app, CLI for human use, CLI for agent use, and API for agent use.
       </div>
       <section class="panel">
-        <h1>{{ app_title }}</h1>
-        {% if identity.logged_in %}
-        <p><strong>Logged in:</strong> <code>{{ identity.npub }}</code></p>
-        {% if identity.profile %}
-        <p><strong>Selected profile:</strong> <code>{{ identity.profile }}</code></p>
-        <form action="/profiles/edit" method="get">
-          <button type="submit">Update Selected Social Profile</button>
-        </form>
-        {% endif %}
-        <form action="/logout" method="post">
-          <button type="submit">Logout</button>
-        </form>
-        {% else %}
-        <p>No nsec session is active.</p>
-        <form action="/login" method="post">
-          <input type="text" name="nsec" placeholder="nsec1..." required>
-          <button type="submit">Login with nsec</button>
-        </form>
-        <form action="/generate-login" method="post">
-          <button type="submit">Generate New nsec</button>
-        </form>
-        {% endif %}
+        <div class="subpanel">
+          {% if identity.logged_in %}
+          <p><strong>Logged in:</strong> <code title="{{ identity.npub }}">{{ identity.npub | short_id }}</code></p>
+          {% if identity.profile %}
+          <p><strong>Selected profile:</strong> <code>{{ identity.profile }}</code></p>
+          <form action="/profiles/edit" method="get">
+            <button type="submit">Update Selected Social Profile</button>
+          </form>
+          {% endif %}
+          <div class="button-row">
+            <button type="button" class="ghost-button" onclick="document.getElementById('backup-key-dialog').showModal()">Backup Key</button>
+            <form action="/logout" method="post">
+              <button type="submit">Logout</button>
+            </form>
+          </div>
+          {% else %}
+          <p>No nsec session is active.</p>
+          <form action="/login" method="post">
+            <input type="text" name="nsec" placeholder="nsec1..." required>
+            <button type="submit">Login with nsec</button>
+          </form>
+          <form action="/generate-login" method="post">
+            <button type="submit">Generate New nsec</button>
+          </form>
+          {% endif %}
+        </div>
+
         {% if identity.logged_in and available_profiles %}
-        <div class="profile-list">
+        <div class="subpanel profile-list">
           <h2>Available Profiles</h2>
           <ul>
             {% for profile in available_profiles %}
@@ -170,7 +304,7 @@
               {% if profile.is_active %}(active){% endif %}
               {% if profile.is_selected %}(selected){% endif %}
               {% if profile.signer_npub %}
-                <div><span>signer:</span> <code>{{ profile.signer_npub }}</code></div>
+                <div><span>signer:</span> <code title="{{ profile.signer_npub }}">{{ profile.signer_npub | short_id }}</code></div>
                 <div><span>source:</span> {{ profile.signer_source }}</div>
               {% else %}
                 <div><span>signer:</span> none configured</div>
@@ -193,8 +327,21 @@
           </ul>
         </div>
         {% endif %}
+
+        <div class="subpanel">
+          <h2>Settings</h2>
+          <p class="settings-note">
+            Bootstrap relays are used with the root key to discover and manage relay-backed profiles. Working relays are the default relays used for query and issue actions in this session.
+          </p>
+          <form action="/settings" method="post">
+            <input type="text" name="bootstrap_relays" value="{{ bootstrap_relays }}" placeholder="Bootstrap relay(s)">
+            <input type="text" name="default_relays" value="{{ default_relays }}" placeholder="Working relay(s)">
+            <button type="submit">Save Relay Settings</button>
+          </form>
+        </div>
+
         {% if identity.logged_in %}
-        <div class="profile-list">
+        <div class="subpanel profile-list">
           <h2>Create New Profile</h2>
           <form action="/profiles/create" method="post">
             <input type="text" name="profile_name" placeholder="Profile name" required>
@@ -203,40 +350,66 @@
           </form>
         </div>
         {% endif %}
-        <p>
-          This FastAPI app lives outside the packaged <code>openetr</code> component so the
-          web layer and its dependencies can evolve independently while still reusing the same
-          shared query, publish, guard, and profile workflows.
-        </p>
-        <p>
-          Upload a file below and perform an OpenETR <code>query-etr</code>-style lookup using
-          the file digest as the object identifier.
-        </p>
-        <form action="/api/query-etr-from-upload" method="post" enctype="multipart/form-data">
-          <input type="file" name="file" required>
-          <input type="text" name="relays" value="{{ default_relays }}">
-          <button type="submit">Query ETR Records</button>
-        </form>
-        {% if identity.logged_in %}
-        <p>
-          Or issue a new ETR origin event using the selected profile signer.
-        </p>
-        <form action="/api/issue-etr-from-upload" method="post" enctype="multipart/form-data">
-          <input type="file" name="file" required>
-          <input type="text" name="relays" value="{{ default_relays }}">
-          <input type="text" name="comment" placeholder="Optional comment">
-          <button type="submit">Issue ETR</button>
-        </form>
-        {% endif %}
-        <p>
-          The methodology for this shared-core approach is described in
-          <code>docs/specs/MULTI_MODALITY_ARCHITECTURE_NOTE.md</code>.
-        </p>
-        <p>Interactive API docs are available at <code>/docs</code>.</p>
+
+        <div class="subpanel">
+          <h2>Work With Records</h2>
+          <p class="flow-note">
+            Upload a file and perform an OpenETR <code>query-etr</code>-style lookup using the file digest as the object identifier.
+          </p>
+          <form action="/api/query-etr-from-upload" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" required>
+            <input type="text" name="relays" value="{{ default_relays }}">
+            <button type="submit">Query ETR Records</button>
+          </form>
+          {% if identity.logged_in %}
+          <form action="/api/issue-etr-from-upload" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" required>
+            <input type="text" name="relays" value="{{ default_relays }}">
+            <input type="text" name="comment" placeholder="Optional comment">
+            <button type="submit">Issue ETR</button>
+          </form>
+          {% endif %}
+        </div>
+
+        <div class="subpanel">
+          <p>
+            This FastAPI app lives outside the packaged <code>openetr</code> component so the
+            web layer and its dependencies can evolve independently while still reusing the same
+            shared query, publish, guard, and profile workflows.
+          </p>
+          <p>
+            The methodology for this shared-core approach is described in
+            <code>docs/specs/MULTI_MODALITY_ARCHITECTURE_NOTE.md</code>.
+          </p>
+          <p>Interactive API docs are available at <code>/docs</code>.</p>
+        </div>
         <div class="footer-meta">
           Latest commit: <code>{{ git_commit }}</code>
         </div>
+        <div class="footer-mark">
+          <img src="/assets/images/openetr.png" alt="OpenETR logo">
+        </div>
       </section>
+      {% if identity.logged_in %}
+      <dialog id="backup-key-dialog">
+        <div class="dialog-body">
+          <h2>Backup Key</h2>
+          <p>Store this key in a safe place. If your session ends, you will need it to restore access.</p>
+          <p><strong>Current signer nsec:</strong></p>
+          <p><code>{{ identity.nsec }}</code></p>
+          {% if identity.root_nsec and identity.root_nsec != identity.nsec %}
+          <p><strong>Root admin nsec:</strong></p>
+          <p><code>{{ identity.root_nsec }}</code></p>
+          <p>This root key manages your relay-backed profiles and signer records. Keep it separate from operational profile keys.</p>
+          {% endif %}
+          <div class="dialog-actions">
+            <form method="dialog">
+              <button type="submit">Close</button>
+            </form>
+          </div>
+        </div>
+      </dialog>
+      {% endif %}
     </main>
   </body>
 </html>

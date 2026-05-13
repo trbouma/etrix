@@ -4,6 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_title }} Query Result</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
       :root {
         --bg: #f5efe3;
@@ -13,10 +16,11 @@
         --border: #d7c3a2;
         --muted: #6d6255;
         --warn: #8a5b2d;
+        --heading: #18130d;
       }
       body {
         margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
+        font-family: "Manrope", sans-serif;
         color: var(--text);
         background:
           radial-gradient(circle at top left, #fde7be 0, transparent 26rem),
@@ -30,7 +34,7 @@
       .panel {
         background: color-mix(in srgb, var(--panel) 96%, white);
         border: 1px solid var(--border);
-        border-radius: 1rem;
+        border-radius: 1.35rem;
         padding: 1.25rem 1.5rem;
         box-shadow: 0 12px 32px rgba(71, 44, 17, 0.08);
         margin-bottom: 1rem;
@@ -52,6 +56,8 @@
       }
       h1, h2, h3 {
         margin-top: 0;
+        color: var(--heading);
+        letter-spacing: -0.035em;
       }
       .kv {
         display: grid;
@@ -96,6 +102,27 @@
         align-items: center;
         margin-bottom: 1rem;
       }
+      .eyebrow {
+        margin: 0 0 0.65rem;
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      @media (max-width: 640px) {
+        main {
+          margin: 1.25rem auto 3rem;
+          padding: 0 0.9rem;
+        }
+        .panel {
+          padding: 1rem 1.1rem;
+          border-radius: 1.1rem;
+        }
+        .kv {
+          grid-template-columns: 1fr;
+        }
+      }
     </style>
   </head>
   <body>
@@ -105,6 +132,7 @@
         <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">Open GitHub Pages Site</a>
       </div>
       <section class="panel">
+        <p class="eyebrow">OpenETR</p>
         <div class="notice info">
           This result page is a web rendering of shared <code>openetr</code> query and guard logic.
           The goal is for the web app, human CLI, agent CLI, and agent API to produce equivalent semantics from the same core workflows.
@@ -113,7 +141,7 @@
       {% if identity.logged_in %}
       <section class="panel">
         <div class="notice">
-          Logged in as <span class="mono">{{ identity.npub }}</span>
+          Logged in as <span class="mono" title="{{ identity.npub }}">{{ identity.npub | short_id }}</span>
           {% if identity.profile %}
             with selected profile <span class="mono">{{ identity.profile }}</span>
           {% endif %}
@@ -130,7 +158,7 @@
             {% if profile.is_active %}(active){% endif %}
             {% if profile.is_selected %}(selected){% endif %}
             {% if profile.signer_npub %}
-              <div>signer: <span class="mono">{{ profile.signer_npub }}</span></div>
+              <div>signer: <span class="mono" title="{{ profile.signer_npub }}">{{ profile.signer_npub | short_id }}</span></div>
               <div>source: {{ profile.signer_source }}</div>
             {% else %}
               <div>signer: none configured</div>
@@ -167,7 +195,7 @@
         <h2>Issue ETR Result</h2>
         <div class="kv">
           <div class="muted">Issued Event ID</div><div class="mono">{{ issue_result.event_id }}</div>
-          <div class="muted">Signer</div><div class="mono">{{ issue_result.signer_npub }}</div>
+          <div class="muted">Signer</div><div class="mono" title="{{ issue_result.signer_npub }}">{{ issue_result.signer_npub | short_id }}</div>
           <div class="muted">Comment</div><div class="mono">{{ issue_result.comment }}</div>
           <div class="muted">Existing Before Publish</div><div>{{ issue_result.existing_count_before_publish }}</div>
           <div class="muted">Returned After Publish</div><div>{{ issue_result.query_count_after_publish }}</div>
@@ -207,7 +235,7 @@
         <div class="kv">
           <div class="muted">Object ID</div><div class="mono">{{ object_id }}</div>
           <div class="muted">Origin Event ID</div><div class="mono">{{ query.initial_event.event_ref }}</div>
-          <div class="muted">Issuer</div><div class="mono">{{ query.initial_event.author_npub }}</div>
+          <div class="muted">Issuer</div><div class="mono" title="{{ query.initial_event.author_npub }}">{{ query.initial_event.author_npub | short_id }}</div>
           {% if query.initial_event.is_current_profile_author %}
           <div class="muted">Current Session Signer</div><div>Yes</div>
           {% endif %}
@@ -235,7 +263,7 @@
         <div class="event">
           <div class="kv">
             <div class="muted">Origin Event ID</div><div class="mono">{{ item.event.event_ref }}</div>
-            <div class="muted">Issuer</div><div class="mono">{{ item.event.author_npub }}</div>
+            <div class="muted">Issuer</div><div class="mono" title="{{ item.event.author_npub }}">{{ item.event.author_npub | short_id }}</div>
             {% if item.is_current_profile_author %}
             <div class="muted">Current Session Signer</div><div>Yes</div>
             {% endif %}
@@ -268,7 +296,7 @@
             <div class="kv">
               <div class="muted">Event</div><div>{{ node.row_label }}</div>
               <div class="muted">Event ID</div><div class="mono">{{ node.event.event_ref }}</div>
-              <div class="muted">Author</div><div class="mono">{{ node.event.author_npub }}</div>
+              <div class="muted">Author</div><div class="mono" title="{{ node.event.author_npub }}">{{ node.event.author_npub | short_id }}</div>
               {% if node.is_current_profile_author %}<div class="muted">Current Session Signer</div><div>Yes</div>{% endif %}
               <div class="muted">Created At</div><div>{{ node.event.created_at }}</div>
               <div class="muted">Object ID</div><div class="mono">{{ object_id }}</div>

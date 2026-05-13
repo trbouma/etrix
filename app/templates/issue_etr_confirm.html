@@ -4,10 +4,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ app_title }} Issue Confirmation</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
       body {
         margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
+        font-family: "Manrope", sans-serif;
         background: #f8f1e4;
         color: #1f1a14;
       }
@@ -19,7 +22,7 @@
       .panel {
         background: #fffaf4;
         border: 1px solid #d7c3a2;
-        border-radius: 1rem;
+        border-radius: 1.35rem;
         padding: 1.5rem;
         margin-bottom: 1rem;
       }
@@ -67,6 +70,27 @@
         align-items: center;
         margin-bottom: 1rem;
       }
+      .eyebrow {
+        margin: 0 0 0.65rem;
+        color: #8a5b2d;
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      @media (max-width: 640px) {
+        main {
+          margin: 1.75rem auto 2.5rem;
+          padding: 0 0.9rem;
+        }
+        .panel {
+          padding: 1.1rem;
+          border-radius: 1.1rem;
+        }
+        .kv {
+          grid-template-columns: 1fr;
+        }
+      }
     </style>
   </head>
   <body>
@@ -76,6 +100,7 @@
         <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">Open GitHub Pages Site</a>
       </div>
       <section class="panel info">
+        <p class="eyebrow">OpenETR</p>
         <p>
           This confirmation page is the web equivalent of the CLI guard flow.
           The warning comes from shared <code>openetr</code> guard logic so the same issuance semantics can be reused across the web app, CLI, and future agent-facing interfaces.
@@ -86,7 +111,7 @@
         <p><strong>{{ guard.warning_message }}</strong></p>
         <div class="kv">
           <div>Existing Event</div><div class="mono">{{ guard.latest_event_id }}</div>
-          <div>Existing Issuer</div><div class="mono">{{ guard.latest_issuer_npub }}</div>
+          <div>Existing Issuer</div><div class="mono" title="{{ guard.latest_issuer_npub }}">{{ guard.latest_issuer_npub | short_id }}</div>
           <div>Object ID</div><div class="mono">{{ object_id }}</div>
           <div>File</div><div>{{ filename }}</div>
           <div>Size</div><div>{{ size_bytes }} bytes</div>
