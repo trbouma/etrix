@@ -95,7 +95,10 @@ async def resolve_profile_signer_nsec(profile_name: str, config: dict | None = N
     if local_value:
         return local_value, "local"
 
-    remote_value = await _async_load_profile_secret(profile_name, resolved_config)
+    try:
+        remote_value = await _async_load_profile_secret(profile_name, resolved_config)
+    except click.ClickException:
+        return None, "relay unavailable"
     if remote_value:
         return remote_value, "relay"
 
@@ -131,7 +134,11 @@ async def get_available_profiles(identity: dict[str, Any]) -> list[dict[str, Any
                 "signer_source": signer_source,
                 "signer_matches_session": signer_matches_session,
                 "can_select": signer_nsec is not None,
-                "usable_label": "matches current session signer" if signer_matches_session else "session override available",
+                "usable_label": (
+                    "matches current session signer"
+                    if signer_matches_session
+                    else ("signer unavailable in this environment" if signer_source == "relay unavailable" else "session override available")
+                ),
             }
         )
 
