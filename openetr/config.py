@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 from copy import deepcopy
 from importlib.resources import files
 import hashlib
@@ -37,6 +38,11 @@ PROFILE_KEYS = {
     "lei",
 }
 
+_REQUEST_RUNTIME_BOOTSTRAP: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(
+    "openetr_request_runtime_bootstrap",
+    default={},
+)
+
 
 def _normalize_relays(relays: str | list[str] | tuple[str, ...] | None) -> list[str]:
     if relays is None:
@@ -68,7 +74,23 @@ def _runtime_bootstrap_overrides() -> dict[str, str]:
     ctx = click.get_current_context(silent=True)
     if ctx is not None:
         overrides.update(dict(ctx.obj or {}))
+    request_overrides = _REQUEST_RUNTIME_BOOTSTRAP.get()
+    if request_overrides:
+        overrides.update(request_overrides)
     return overrides
+
+
+def set_runtime_bootstrap_overrides(root_nsec: str | None = None, home_relays: str | None = None):
+    current = dict(_REQUEST_RUNTIME_BOOTSTRAP.get())
+    if root_nsec:
+        current[ROOT_NSEC_KEY] = root_nsec
+    if home_relays:
+        current[HOME_RELAY_KEY] = home_relays
+    return _REQUEST_RUNTIME_BOOTSTRAP.set(current)
+
+
+def reset_runtime_bootstrap_overrides(token) -> None:
+    _REQUEST_RUNTIME_BOOTSTRAP.reset(token)
 
 
 def runtime_bootstrap_enabled() -> bool:

@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import hashlib
 import os
 from pathlib import Path
@@ -7,12 +8,14 @@ import bech32
 import click
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.templating import Jinja2Templates
+from monstr.encrypt import Keys
 from starlette.middleware.sessions import SessionMiddleware
 
-from openetr.config import DEFAULT_LIMIT, DEFAULT_PROFILE_NAME, DEFAULT_QUERY_TIMEOUT, DEFAULT_RELAYS, _async_load_profile_record, _async_load_profile_secret, _async_load_profiles_index, load_user_config, packaged_defaults
+from openetr.config import DEFAULT_LIMIT, DEFAULT_PROFILE_NAME, DEFAULT_QUERY_TIMEOUT, DEFAULT_RELAYS, _async_load_profile_record, _async_load_profile_secret, _async_load_profiles_index, load_user_config, packaged_defaults, reset_runtime_bootstrap_overrides, set_runtime_bootstrap_overrides
 from openetr.guards import evaluate_issue_etr_guard
 from openetr.helpers import format_object_identifier, format_pubkey, resolve_keys
 from openetr.services.issue_etr import publish_issue_etr
+from openetr.services.profile_admin import create_relay_backed_profile
 from openetr.services.profile_publish import PROFILE_FIELDS, publish_profile_updates
 from openetr.services.query_etr import build_query_etr_result, compact_profile, fetch_profile
 
@@ -20,9 +23,11 @@ from openetr.services.query_etr import build_query_etr_result, compact_profile, 
 APP_TITLE = "OpenETR Demo App"
 CONTROL_TRANSFER_KIND = 31416
 NOBJ_PREFIX = "nobj"
-SESSION_NSEC_KEY = "openetr_nsec"
+SESSION_ROOT_NSEC_KEY = "openetr_root_nsec"
+SESSION_SIGNER_NSEC_KEY = "openetr_signer_nsec"
 SESSION_PROFILE_KEY = "openetr_profile"
 SESSION_SECRET = os.environ.get("OPENETR_APP_SESSION_SECRET", "openetr-demo-session-secret")
+SITE_URL = os.environ.get("OPENETR_SITE_URL", "https://trbouma.github.io/openetr/")
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 app = FastAPI(
@@ -41,19 +46,27 @@ def bytes_to_nobj(data: bytes, prefix: str = NOBJ_PREFIX) -> str:
     return bech32.bech32_encode(prefix, converted)
 
 def session_identity(request: Request) -> dict[str, Any]:
-    nsec = request.session.get(SESSION_NSEC_KEY)
-    if not nsec:
-        return {"logged_in": False, "nsec": None, "npub": None, "pubkey_hex": None}
+    root_nsec = request.session.get(SESSION_ROOT_NSEC_KEY)
+    signer_nsec = request.session.get(SESSION_SIGNER_NSEC_KEY)
+    if not root_nsec and not signer_nsec:
+        return {"logged_in": False, "nsec": None, "npub": None, "pubkey_hex": None, "root_nsec": None}
+
+    effective_nsec = signer_nsec or root_nsec
+    if effective_nsec is None:
+        return {"logged_in": False, "nsec": None, "npub": None, "pubkey_hex": None, "root_nsec": None}
 
     try:
-        keys = resolve_keys(nsec)
+        keys = resolve_keys(effective_nsec)
     except click.ClickException:
-        request.session.pop(SESSION_NSEC_KEY, None)
-        return {"logged_in": False, "nsec": None, "npub": None, "pubkey_hex": None}
+        request.session.pop(SESSION_ROOT_NSEC_KEY, None)
+        request.session.pop(SESSION_SIGNER_NSEC_KEY, None)
+        return {"logged_in": False, "nsec": None, "npub": None, "pubkey_hex": None, "root_nsec": None}
 
     return {
         "logged_in": True,
-        "nsec": nsec,
+        "nsec": effective_nsec,
+        "root_nsec": root_nsec,
+        "signer_nsec": signer_nsec,
         "npub": keys.public_key_bech32(),
         "pubkey_hex": keys.public_key_hex(),
         "profile": request.session.get(SESSION_PROFILE_KEY),
@@ -64,16 +77,35 @@ def get_session_identity(request: Request) -> dict[str, Any]:
     return session_identity(request)
 
 
+@contextmanager
+def session_bootstrap(identity: dict[str, Any]):
+    root_nsec = identity.get("root_nsec") or identity.get("nsec")
+    if not root_nsec:
+        yield
+        return
+    home_relays = os.environ.get("OPENETR_HOME_RELAYS", DEFAULT_RELAYS)
+    token = set_runtime_bootstrap_overrides(root_nsec=root_nsec, home_relays=home_relays)
+    try:
+        yield
+    finally:
+        reset_runtime_bootstrap_overrides(token)
+
+
 async def get_default_template_context(
     identity: dict[str, Any] = Depends(get_session_identity),
 ) -> dict[str, Any]:
+    with session_bootstrap(identity):
+        available_profiles = await get_available_profiles(identity)
     return {
         "app_title": APP_TITLE,
+        "site_url": SITE_URL,
         "default_relays": DEFAULT_RELAYS,
         "identity": identity,
-        "available_profiles": await get_available_profiles(identity),
+        "available_profiles": available_profiles,
         "error_message": None,
         "success_message": None,
+        "generated_nsec": None,
+        "created_profile": None,
     }
 
 
@@ -127,37 +159,38 @@ async def get_available_profiles(identity: dict[str, Any]) -> list[dict[str, Any
     if not identity.get("logged_in"):
         return []
 
-    config = load_user_config()
-    active_profile, profile_names = await relay_profile_names()
-    profiles: list[dict[str, Any]] = []
-    for profile_name in profile_names:
-        signer_nsec, signer_source = await resolve_profile_signer_nsec(profile_name, config)
-        signer_npub = None
-        signer_matches_session = False
-        if signer_nsec:
-            try:
-                signer_keys = resolve_keys(signer_nsec)
-                signer_npub = signer_keys.public_key_bech32()
-                signer_matches_session = signer_keys.public_key_hex() == identity["pubkey_hex"]
-            except click.ClickException:
-                signer_npub = None
+    with session_bootstrap(identity):
+        config = load_user_config()
+        active_profile, profile_names = await relay_profile_names()
+        profiles: list[dict[str, Any]] = []
+        for profile_name in profile_names:
+            signer_nsec, signer_source = await resolve_profile_signer_nsec(profile_name, config)
+            signer_npub = None
+            signer_matches_session = False
+            if signer_nsec:
+                try:
+                    signer_keys = resolve_keys(signer_nsec)
+                    signer_npub = signer_keys.public_key_bech32()
+                    signer_matches_session = signer_keys.public_key_hex() == identity["pubkey_hex"]
+                except click.ClickException:
+                    signer_npub = None
 
-        profiles.append(
-            {
-                "name": profile_name,
-                "is_active": profile_name == active_profile,
-                "is_selected": profile_name == identity.get("profile"),
-                "signer_npub": signer_npub,
-                "signer_source": signer_source,
-                "signer_matches_session": signer_matches_session,
-                "can_select": signer_nsec is not None,
-                "usable_label": (
-                    "matches current session signer"
-                    if signer_matches_session
-                    else ("signer unavailable in this environment" if signer_source == "relay unavailable" else "session override available")
-                ),
-            }
-        )
+            profiles.append(
+                {
+                    "name": profile_name,
+                    "is_active": profile_name == active_profile,
+                    "is_selected": profile_name == identity.get("profile"),
+                    "signer_npub": signer_npub,
+                    "signer_source": signer_source,
+                    "signer_matches_session": signer_matches_session,
+                    "can_select": signer_nsec is not None,
+                    "usable_label": (
+                        "matches current session signer"
+                        if signer_matches_session
+                        else ("signer unavailable in this environment" if signer_source == "relay unavailable" else "session override available")
+                    ),
+                }
+            )
 
     return profiles
 
@@ -201,7 +234,8 @@ async def login(
         )
 
     normalized_nsec = keys.private_key_bech32()
-    request.session[SESSION_NSEC_KEY] = normalized_nsec
+    request.session[SESSION_ROOT_NSEC_KEY] = normalized_nsec
+    request.session[SESSION_SIGNER_NSEC_KEY] = normalized_nsec
     request.session.pop(SESSION_PROFILE_KEY, None)
     template_context = await get_default_template_context(session_identity(request))
     template_context["success_message"] = "Logged in with nsec session cookie."
@@ -217,10 +251,86 @@ async def logout(
     request: Request,
     template_context: dict[str, Any] = Depends(get_default_template_context),
 ):
-    request.session.pop(SESSION_NSEC_KEY, None)
+    request.session.pop(SESSION_ROOT_NSEC_KEY, None)
+    request.session.pop(SESSION_SIGNER_NSEC_KEY, None)
     request.session.pop(SESSION_PROFILE_KEY, None)
     template_context = await get_default_template_context(session_identity(request))
     template_context["success_message"] = "Logged out."
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        template_context,
+    )
+
+
+@app.post("/generate-login")
+async def generate_login(
+    request: Request,
+    template_context: dict[str, Any] = Depends(get_default_template_context),
+):
+    keys = Keys()
+    generated_nsec = keys.private_key_bech32()
+    request.session[SESSION_ROOT_NSEC_KEY] = generated_nsec
+    request.session[SESSION_SIGNER_NSEC_KEY] = generated_nsec
+    request.session.pop(SESSION_PROFILE_KEY, None)
+    template_context = await get_default_template_context(session_identity(request))
+    template_context["success_message"] = "Generated a new nsec and started a session."
+    template_context["generated_nsec"] = generated_nsec
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        template_context,
+    )
+
+
+@app.post("/profiles/create")
+async def create_profile(
+    request: Request,
+    profile_name: str = Form(...),
+    relays: str = Form(DEFAULT_RELAYS),
+    template_context: dict[str, Any] = Depends(get_default_template_context),
+):
+    identity = template_context["identity"]
+    if not identity.get("logged_in"):
+        template_context["error_message"] = "You must log in with an nsec before creating a profile."
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            template_context,
+            status_code=400,
+        )
+
+    try:
+        with session_bootstrap(identity):
+            created_profile = await create_relay_backed_profile(
+                profile_name=profile_name,
+                relays=relays,
+                config=load_user_config(),
+            )
+    except ValueError as exc:
+        template_context["error_message"] = str(exc)
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            template_context,
+            status_code=400,
+        )
+    except click.ClickException as exc:
+        template_context["error_message"] = str(exc)
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            template_context,
+            status_code=400,
+        )
+
+    request.session[SESSION_SIGNER_NSEC_KEY] = created_profile["signer_nsec"]
+    request.session[SESSION_PROFILE_KEY] = created_profile["profile_name"]
+    template_context = await get_default_template_context(session_identity(request))
+    template_context["success_message"] = (
+        f"Created relay-backed profile '{created_profile['profile_name']}' and selected it for this session."
+    )
+    template_context["created_profile"] = created_profile
     return templates.TemplateResponse(
         request,
         "index.html",
@@ -234,8 +344,9 @@ async def use_profile(
     profile: str = Form(...),
     template_context: dict[str, Any] = Depends(get_default_template_context),
 ):
-    config = load_user_config()
-    signer_nsec, signer_source = await resolve_profile_signer_nsec(profile, config)
+    with session_bootstrap(template_context["identity"]):
+        config = load_user_config()
+        signer_nsec, signer_source = await resolve_profile_signer_nsec(profile, config)
     if signer_nsec is None:
         template_context["error_message"] = f"No signer nsec is available for profile '{profile}'."
         return templates.TemplateResponse(
@@ -256,7 +367,7 @@ async def use_profile(
             status_code=400,
         )
 
-    request.session[SESSION_NSEC_KEY] = keys.private_key_bech32()
+    request.session[SESSION_SIGNER_NSEC_KEY] = keys.private_key_bech32()
     request.session[SESSION_PROFILE_KEY] = profile
     template_context = await get_default_template_context(session_identity(request))
     template_context["success_message"] = (
@@ -284,18 +395,20 @@ async def edit_profile_page(
         template_context["error_message"] = "Select a profile before editing its social profile."
         return templates.TemplateResponse(request, "index.html", template_context, status_code=400)
 
-    relays = str((await relay_profile_config(identity["profile"])).get("relays") or DEFAULT_RELAYS)
-    current_profile = await fetch_profile(
-        relays=relays,
-        pubkey_hex=identity["pubkey_hex"],
-        timeout=DEFAULT_QUERY_TIMEOUT,
-        ssl_disable_verify=False,
-    ) or {}
+    with session_bootstrap(identity):
+        relays = str((await relay_profile_config(identity["profile"])).get("relays") or DEFAULT_RELAYS)
+        current_profile = await fetch_profile(
+            relays=relays,
+            pubkey_hex=identity["pubkey_hex"],
+            timeout=DEFAULT_QUERY_TIMEOUT,
+            ssl_disable_verify=False,
+        ) or {}
     return templates.TemplateResponse(
         request,
         "profile_edit.html",
         {
             "app_title": APP_TITLE,
+            "site_url": SITE_URL,
             "identity": identity,
             "available_profiles": await get_available_profiles(identity),
             "relays": relays,
@@ -352,14 +465,15 @@ async def edit_profile_submit(
     }
 
     try:
-        publish_result = await publish_profile_updates(
-            relays=relays,
-            signer_nsec=identity["nsec"],
-            field_values=field_values,
-            replace=replace == "true",
-            publish_wait=2.0,
-            query_timeout=DEFAULT_QUERY_TIMEOUT,
-        )
+        with session_bootstrap(identity):
+            publish_result = await publish_profile_updates(
+                relays=relays,
+                signer_nsec=identity["nsec"],
+                field_values=field_values,
+                replace=replace == "true",
+                publish_wait=2.0,
+                query_timeout=DEFAULT_QUERY_TIMEOUT,
+            )
     except click.ClickException as exc:
         current_profile = await fetch_profile(
             relays=relays,
@@ -372,6 +486,7 @@ async def edit_profile_submit(
             "profile_edit.html",
             {
                 "app_title": APP_TITLE,
+                "site_url": SITE_URL,
                 "identity": identity,
                 "available_profiles": await get_available_profiles(identity),
                 "relays": relays,
@@ -391,6 +506,7 @@ async def edit_profile_submit(
         "profile_edit.html",
         {
             "app_title": APP_TITLE,
+            "site_url": SITE_URL,
             "identity": identity,
             "available_profiles": await get_available_profiles(identity),
             "relays": relays,
@@ -435,6 +551,7 @@ async def query_etr_from_upload(
         "query_etr_result.html",
         {
             "app_title": APP_TITLE,
+            "site_url": SITE_URL,
             "identity": identity,
             "available_profiles": await get_available_profiles(identity),
             "filename": file.filename,
@@ -506,6 +623,7 @@ async def issue_etr_from_upload(
             "issue_etr_confirm.html",
             {
                 "app_title": APP_TITLE,
+                "site_url": SITE_URL,
                 "identity": identity,
                 "available_profiles": await get_available_profiles(identity),
                 "filename": filename,
@@ -537,6 +655,7 @@ async def issue_etr_from_upload(
         "query_etr_result.html",
         {
             "app_title": APP_TITLE,
+            "site_url": SITE_URL,
             "identity": identity,
             "available_profiles": await get_available_profiles(identity),
             "filename": issue_result["filename"],

@@ -210,6 +210,30 @@ These may initially be dictionaries.
 
 Over time, OpenETR should consider moving toward explicit dataclasses or Pydantic models for stronger contracts and easier reuse across CLI, web, and API layers.
 
+## Root Key Separation
+
+OpenETR should maintain a strict separation between the administrative root key and operational profile identities.
+
+The `root_nsec` is intended to manage relay-backed configuration and profile control data, including:
+
+- the relay-backed profiles index
+- relay-backed profile configuration records
+- relay-backed encrypted profile signer secrets
+
+It is not intended to act as a public-facing user identity.
+
+As a design rule, the root key should:
+
+- not publish a social profile
+- not serve as an operational signer for normal ETR workflows
+- not be treated as a user-facing identity in the web app or CLI
+
+The purpose of this separation is to reduce attack surface and preserve cleaner key hygiene.
+
+Operational profile signers may publish social profiles and perform public or transactional actions.
+
+The root key should remain an administrative control and recovery key only.
+
 ## Recommended Repository Shape
 
 The following direction is recommended:

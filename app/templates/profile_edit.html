@@ -112,10 +112,20 @@
           grid-template-columns: 1fr;
         }
       }
+      .top-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
     </style>
   </head>
   <body>
     <main>
+      <div class="top-nav">
+        <a href="/">Home</a>
+        <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">Open GitHub Pages Site</a>
+      </div>
       {% if error_message %}
       <div class="notice error">{{ error_message }}</div>
       {% endif %}

@@ -83,18 +83,49 @@
         background: #f2f5f7;
         border: 1px solid #b8c8d3;
       }
+      .notice.warning {
+        background: #fff5e3;
+        border: 1px solid #d1a96f;
+      }
       .profile-list {
         margin-top: 1rem;
+      }
+      .top-nav {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 1rem;
+      }
+      .top-nav a {
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 600;
       }
     </style>
   </head>
   <body>
     <main>
+      <div class="top-nav">
+        <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">Open GitHub Pages Site</a>
+      </div>
       {% if error_message %}
       <div class="notice error">{{ error_message }}</div>
       {% endif %}
       {% if success_message %}
       <div class="notice success">{{ success_message }}</div>
+      {% endif %}
+      {% if generated_nsec %}
+      <div class="notice warning">
+        <strong>Important:</strong> copy and safeguard this generated <code>nsec</code> now. If your browser session ends, you will need this key to log back in.
+        <div style="margin-top:0.75rem;"><code>{{ generated_nsec }}</code></div>
+      </div>
+      {% endif %}
+      {% if created_profile %}
+      <div class="notice info">
+        <strong>Created profile:</strong> <code>{{ created_profile.profile_name }}</code><br>
+        <strong>Profile signer:</strong> <code>{{ created_profile.signer_npub }}</code><br>
+        <strong>Profile relays:</strong> <code>{{ created_profile.relays }}</code><br>
+        The signer secret was generated and stored relay-backed under your root session context, and the new profile is now selected for this browser session.
+      </div>
       {% endif %}
       <div class="notice info">
         This web app is one of four OpenETR delivery surfaces. The intended model is one shared <code>openetr</code> core with four adapters:
@@ -118,6 +149,9 @@
         <form action="/login" method="post">
           <input type="text" name="nsec" placeholder="nsec1..." required>
           <button type="submit">Login with nsec</button>
+        </form>
+        <form action="/generate-login" method="post">
+          <button type="submit">Generate New nsec</button>
         </form>
         {% endif %}
         {% if identity.logged_in and available_profiles %}
@@ -151,6 +185,16 @@
             </li>
             {% endfor %}
           </ul>
+        </div>
+        {% endif %}
+        {% if identity.logged_in %}
+        <div class="profile-list">
+          <h2>Create New Profile</h2>
+          <form action="/profiles/create" method="post">
+            <input type="text" name="profile_name" placeholder="Profile name" required>
+            <input type="text" name="relays" value="{{ default_relays }}">
+            <button type="submit">Create Relay-Backed Profile</button>
+          </form>
         </div>
         {% endif %}
         <p>

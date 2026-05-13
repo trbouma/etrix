@@ -90,10 +90,20 @@
         padding: 0.15rem 0.35rem;
         border-radius: 0.3rem;
       }
+      .top-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
     </style>
   </head>
   <body>
     <main>
+      <div class="top-nav">
+        <a href="/">Home</a>
+        <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">Open GitHub Pages Site</a>
+      </div>
       <section class="panel">
         <div class="notice info">
           This result page is a web rendering of shared <code>openetr</code> query and guard logic.
