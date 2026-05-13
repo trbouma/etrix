@@ -44,6 +44,8 @@
         border-radius: 1rem;
         background: rgba(255, 255, 255, 0.45);
         margin-top: 1.25rem;
+        width: 100%;
+        box-sizing: border-box;
       }
       .subpanel h2 {
         margin-bottom: 0.75rem;
@@ -76,8 +78,11 @@
         display: grid;
         gap: 0.9rem;
         margin-top: 1.25rem;
+        width: 100%;
       }
       input[type="file"], input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
         background: white;
         border: 1px solid var(--border);
         border-radius: 0.75rem;
@@ -214,6 +219,9 @@
       .flow-note {
         margin-top: 0;
       }
+      .record-panel form {
+        margin-top: 0.95rem;
+      }
       .section-break {
         margin: 2rem 0 1rem;
         padding-top: 1.4rem;
@@ -246,8 +254,20 @@
           padding: 1.2rem;
           border-radius: 1.1rem;
         }
+        .subpanel {
+          padding: 1rem;
+        }
         .top-nav {
           justify-content: flex-start;
+        }
+        .record-panel button,
+        .button-row button,
+        .button-row form,
+        .button-row form button {
+          width: 100%;
+        }
+        .button-row {
+          align-items: stretch;
         }
       }
     </style>
@@ -393,7 +413,7 @@
           <h2>Work With Records</h2>
         </div>
 
-        <div class="subpanel">
+        <div class="subpanel record-panel">
           <h2>Query ETR</h2>
           <p class="flow-note">
             Upload a file and perform an OpenETR <code>query-etr</code>-style lookup using the file digest as the object identifier.
@@ -406,7 +426,7 @@
         </div>
 
         {% if identity.logged_in %}
-        <div class="subpanel">
+        <div class="subpanel record-panel">
           <h2>Issue ETR</h2>
           <p class="flow-note">
             Publish a new ETR origin event using the selected profile signer.
@@ -428,7 +448,7 @@
           </p>
           <p>
             The methodology for this shared-core approach is described in
-            <a href="https://github.com/trbouma/etrix/blob/main/docs/specs/MULTI_MODALITY_ARCHITECTURE_NOTE.md" target="_blank" rel="noopener noreferrer">MULTI_MODALITY_ARCHITECTURE_NOTE.md</a>.
+            <a href="https://github.com/trbouma/etrix/blob/main/docs/specs/MULTI_MODALITY_ARCHITECTURE_NOTE.md" target="_blank" rel="noopener noreferrer">the multi-modality architecture note</a>.
           </p>
           <p>Interactive API docs are available at <a href="/docs">/docs</a>.</p>
         </div>
