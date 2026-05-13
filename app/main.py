@@ -28,6 +28,7 @@ SESSION_SIGNER_NSEC_KEY = "openetr_signer_nsec"
 SESSION_PROFILE_KEY = "openetr_profile"
 SESSION_SECRET = os.environ.get("OPENETR_APP_SESSION_SECRET", "openetr-demo-session-secret")
 SITE_URL = os.environ.get("OPENETR_SITE_URL", "https://trbouma.github.io/openetr/")
+GIT_COMMIT = os.environ.get("OPENETR_GIT_COMMIT", "unknown")
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 app = FastAPI(
@@ -99,6 +100,7 @@ async def get_default_template_context(
     return {
         "app_title": APP_TITLE,
         "site_url": SITE_URL,
+        "git_commit": GIT_COMMIT,
         "default_relays": DEFAULT_RELAYS,
         "identity": identity,
         "available_profiles": available_profiles,
@@ -409,6 +411,7 @@ async def edit_profile_page(
         {
             "app_title": APP_TITLE,
             "site_url": SITE_URL,
+            "git_commit": GIT_COMMIT,
             "identity": identity,
             "available_profiles": await get_available_profiles(identity),
             "relays": relays,
@@ -487,6 +490,7 @@ async def edit_profile_submit(
             {
                 "app_title": APP_TITLE,
                 "site_url": SITE_URL,
+                "git_commit": GIT_COMMIT,
                 "identity": identity,
                 "available_profiles": await get_available_profiles(identity),
                 "relays": relays,
@@ -552,6 +556,7 @@ async def query_etr_from_upload(
         {
             "app_title": APP_TITLE,
             "site_url": SITE_URL,
+            "git_commit": GIT_COMMIT,
             "identity": identity,
             "available_profiles": await get_available_profiles(identity),
             "filename": file.filename,
@@ -624,6 +629,7 @@ async def issue_etr_from_upload(
             {
                 "app_title": APP_TITLE,
                 "site_url": SITE_URL,
+                "git_commit": GIT_COMMIT,
                 "identity": identity,
                 "available_profiles": await get_available_profiles(identity),
                 "filename": filename,
@@ -656,6 +662,7 @@ async def issue_etr_from_upload(
         {
             "app_title": APP_TITLE,
             "site_url": SITE_URL,
+            "git_commit": GIT_COMMIT,
             "identity": identity,
             "available_profiles": await get_available_profiles(identity),
             "filename": issue_result["filename"],

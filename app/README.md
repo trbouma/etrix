@@ -71,6 +71,7 @@ docker run --rm -p 8000:8000 \
   -e OPENETR_APP_SESSION_SECRET=change-me \
   -e OPENETR_ROOT_NSEC=your-root-nsec \
   -e OPENETR_HOME_RELAYS=wss://your-home-relay \
+  -e OPENETR_GIT_COMMIT=$(git rev-parse --short HEAD) \
   openetr-web
 ```
 
@@ -101,6 +102,7 @@ For stateless relay-backed operation, also provide the root bootstrap and home r
 OPENETR_APP_SESSION_SECRET=change-me \
 OPENETR_ROOT_NSEC=your-root-nsec \
 OPENETR_HOME_RELAYS=wss://your-home-relay \
+OPENETR_GIT_COMMIT=$(git rev-parse --short HEAD) \
 docker compose up --build
 ```
 

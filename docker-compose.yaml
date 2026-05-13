@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: app/Dockerfile
+      args:
+        OPENETR_GIT_COMMIT: ${OPENETR_GIT_COMMIT:-unknown}
     image: openetr-web
     ports:
       - "8000:8000"
@@ -10,6 +12,7 @@ services:
       OPENETR_APP_SESSION_SECRET: ${OPENETR_APP_SESSION_SECRET:-openetr-demo-session-secret}
       OPENETR_ROOT_NSEC: ${OPENETR_ROOT_NSEC:-}
       OPENETR_HOME_RELAYS: ${OPENETR_HOME_RELAYS:-}
+      OPENETR_GIT_COMMIT: ${OPENETR_GIT_COMMIT:-unknown}
     command:
       - gunicorn
       - app.main:app

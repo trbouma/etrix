@@ -100,6 +100,11 @@
         text-decoration: none;
         font-weight: 600;
       }
+      .footer-meta {
+        margin-top: 1.5rem;
+        color: #6d6255;
+        font-size: 0.95rem;
+      }
     </style>
   </head>
   <body>
@@ -120,11 +125,12 @@
       </div>
       {% endif %}
       {% if created_profile %}
-      <div class="notice info">
+      <div class="notice warning">
         <strong>Created profile:</strong> <code>{{ created_profile.profile_name }}</code><br>
         <strong>Profile signer:</strong> <code>{{ created_profile.signer_npub }}</code><br>
         <strong>Profile relays:</strong> <code>{{ created_profile.relays }}</code><br>
-        The signer secret was generated and stored relay-backed under your root session context, and the new profile is now selected for this browser session.
+        <strong>Important:</strong> the new profile signer secret was generated and stored relay-backed under your root session context, and the new profile is now selected for this browser session.
+        If you want independent recovery for this profile signer outside the relay-backed root-managed model, export or otherwise safeguard its signer material before relying on it operationally.
       </div>
       {% endif %}
       <div class="notice info">
@@ -227,6 +233,9 @@
           <code>docs/specs/MULTI_MODALITY_ARCHITECTURE_NOTE.md</code>.
         </p>
         <p>Interactive API docs are available at <code>/docs</code>.</p>
+        <div class="footer-meta">
+          Latest commit: <code>{{ git_commit }}</code>
+        </div>
       </section>
     </main>
   </body>
