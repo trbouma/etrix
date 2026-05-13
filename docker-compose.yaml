@@ -1,0 +1,17 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    image: openetr-web
+    ports:
+      - "8000:8000"
+    environment:
+      OPENETR_APP_SESSION_SECRET: ${OPENETR_APP_SESSION_SECRET:-openetr-demo-session-secret}
+    command:
+      - gunicorn
+      - app.main:app
+      - -k
+      - uvicorn.workers.UvicornWorker
+      - --bind
+      - 0.0.0.0:8000

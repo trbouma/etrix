@@ -77,17 +77,31 @@ Then open:
 - `http://127.0.0.1:8000/`
 - `http://127.0.0.1:8000/docs`
 
+## Docker Compose
+
+A simple Compose file is also available at the repo root:
+
+```sh
+docker compose up --build
+```
+
+It uses the same build context and `gunicorn` entrypoint as the standalone Docker run.
+
+If you want to override the session secret:
+
+```sh
+OPENETR_APP_SESSION_SECRET=change-me docker compose up --build
+```
+
 ## Do We Need Docker Compose?
 
-Not for the current app.
+Not strictly.
 
-Right now the web app is a single service, so a `Dockerfile` is enough for build and deployment.
+Right now the web app is still a single service, so the `Dockerfile` is enough for straightforward build and deployment.
 
-`docker-compose.yaml` or `compose.yaml` would only become useful if you want to run additional services together, for example:
+Compose is now included mainly for convenience and for future growth. It becomes more useful if you later want to add:
 
 - a reverse proxy
 - a separate API container
 - local development volumes and overrides
 - observability or background workers
-
-For the current single-container deployment target, Compose is optional rather than required.
