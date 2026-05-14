@@ -127,6 +127,25 @@
       <section class="panel image-frame">
         <img src="{{ overview_image_url }}" alt="OpenETR transferable record scheme infographic">
       </section>
+
+      <section class="panel">
+        <h2>Relay-Backed Architecture</h2>
+        <p>
+          OpenETR is also organized as a relay-backed application architecture. The web app and CLI both call the same
+          <code>openetr</code> module, while the root key and bootstrap relays are used to discover profile records,
+          relay-backed configuration, and signer secrets. Operational record publishing and querying then happen on the
+          working relays using the selected profile signer.
+        </p>
+        <p>
+          This keeps the application stateless at the server layer while still allowing profiles, signer material, and
+          record workflows to be reconstructed from relays. The diagram below shows how the browser session, root key,
+          bootstrap relays, working relays, and shared core fit together.
+        </p>
+      </section>
+
+      <section class="panel image-frame">
+        <img src="{{ architecture_image_url }}" alt="OpenETR relay-backed application architecture infographic">
+      </section>
     </main>
   </body>
 </html>

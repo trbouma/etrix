@@ -331,6 +331,7 @@ async def overview_page(
     template_context: dict[str, Any] = Depends(get_default_template_context),
 ):
     template_context["overview_image_url"] = "/app-assets/images/info-graphic.png"
+    template_context["architecture_image_url"] = "/app-assets/images/relay-backed-architecture.png"
     return templates.TemplateResponse(
         request,
         "overview.html",
