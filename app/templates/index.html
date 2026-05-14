@@ -100,6 +100,31 @@
         font-size: 0.92rem;
         color: var(--muted);
       }
+      details.profile-disclosure {
+        margin-top: 1rem;
+      }
+      details.profile-disclosure summary {
+        cursor: pointer;
+        font-weight: 700;
+        color: var(--heading);
+        list-style: none;
+      }
+      details.profile-disclosure summary::-webkit-details-marker {
+        display: none;
+      }
+      details.profile-disclosure summary::before {
+        content: "▸";
+        display: inline-block;
+        margin-right: 0.5rem;
+        color: var(--accent);
+        transform: translateY(-0.02rem);
+      }
+      details.profile-disclosure[open] summary::before {
+        content: "▾";
+      }
+      .profile-disclosure-body {
+        margin-top: 0.85rem;
+      }
       .kv-compact {
         display: grid;
         grid-template-columns: minmax(8rem, 11rem) minmax(0, 1fr);
@@ -372,35 +397,39 @@
         </div>
         {% if identity.logged_in and available_profiles %}
         <div class="subpanel profile-list">
-          <h2>Available Profiles</h2>
-          <ul>
-            {% for profile in available_profiles %}
-            <li>
-              <strong>{{ profile.name }}</strong>
-              {% if profile.is_active %}(active){% endif %}
-              {% if profile.is_selected %}(selected){% endif %}
-              {% if profile.signer_npub %}
-                <div><span>signer:</span> <code title="{{ profile.signer_npub }}">{{ profile.signer_npub | short_id }}</code></div>
-                <div><span>source:</span> {{ profile.signer_source }}</div>
-              {% else %}
-                <div><span>signer:</span> none configured</div>
-              {% endif %}
-              <div>
-                {% if profile.signer_matches_session %}
-                  <strong>usable:</strong> matches current session signer
-                {% else %}
-                  <strong>usable:</strong> session override available
-                {% endif %}
-              </div>
-              {% if profile.can_select %}
-              <form action="/profiles/use" method="post">
-                <input type="hidden" name="profile" value="{{ profile.name }}">
-                <button type="submit">Use this profile</button>
-              </form>
-              {% endif %}
-            </li>
-            {% endfor %}
-          </ul>
+          <details class="profile-disclosure">
+            <summary>Available Profiles</summary>
+            <div class="profile-disclosure-body">
+              <ul>
+                {% for profile in available_profiles %}
+                <li>
+                  <strong>{{ profile.name }}</strong>
+                  {% if profile.is_active %}(active){% endif %}
+                  {% if profile.is_selected %}(selected){% endif %}
+                  {% if profile.signer_npub %}
+                    <div><span>signer:</span> <code title="{{ profile.signer_npub }}">{{ profile.signer_npub | short_id }}</code></div>
+                    <div><span>source:</span> {{ profile.signer_source }}</div>
+                  {% else %}
+                    <div><span>signer:</span> none configured</div>
+                  {% endif %}
+                  <div>
+                    {% if profile.signer_matches_session %}
+                      <strong>usable:</strong> matches current session signer
+                    {% else %}
+                      <strong>usable:</strong> session override available
+                    {% endif %}
+                  </div>
+                  {% if profile.can_select %}
+                  <form action="/profiles/use" method="post">
+                    <input type="hidden" name="profile" value="{{ profile.name }}">
+                    <button type="submit">Use this profile</button>
+                  </form>
+                  {% endif %}
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+          </details>
         </div>
         {% endif %}
         {% endif %}
