@@ -368,7 +368,7 @@
             <input type="file" name="file" required>
             <label>
               Relay domains or URLs
-              <input type="text" name="relays" value="{{ default_relays }}" placeholder="relay.getsafebox.app, relay.damus.io">
+              <input type="text" name="relays" value="{{ default_relays }}" placeholder="relay.openetr.org, relay.damus.io">
               <span class="field-help">Enter one or more relays separated by commas or spaces. Plain domain names are normalized to <code>wss://</code> automatically.</span>
             </label>
             <button type="submit">Query ETR Records</button>
@@ -422,15 +422,15 @@
           {% endif %}
         </div>
 
-        {% if identity.logged_in and available_profiles %}
+        {% if identity.logged_in %}
         <div class="section-break">
           <h2>Profiles</h2>
         </div>
-        {% if identity.logged_in and available_profiles %}
         <div class="subpanel profile-list">
           <details class="profile-disclosure">
             <summary>Available Profiles</summary>
             <div class="profile-disclosure-body">
+              {% if available_profiles %}
               <ul>
                 {% for profile in available_profiles %}
                 <li>
@@ -459,28 +459,29 @@
                 </li>
                 {% endfor %}
               </ul>
+              {% else %}
+              <p class="field-help">No relay-backed profiles are configured yet for this root identity.</p>
+              {% endif %}
+
+              <div class="subpanel" style="margin-top: 1rem;">
+                <h2>Create New Profile</h2>
+                <form action="/profiles/create" method="post">
+                  <input type="text" name="profile_name" placeholder="Profile name" required>
+                  <input type="text" name="relays" value="{{ default_relays }}">
+                  <label>
+                    Existing signer nsec (optional)
+                    <input type="text" name="signer_nsec" placeholder="Leave blank to generate a new nsec">
+                    <span class="field-help">Matches the CLI: provide an nsec to use it as the profile signer, or leave this blank to generate a new one.</span>
+                  </label>
+                  <label>
+                    <input type="checkbox" name="allow_root_signer" value="true">
+                    I understand that using the root admin nsec as a profile signer is discouraged.
+                  </label>
+                  <button type="submit">Create Relay-Backed Profile</button>
+                </form>
+              </div>
             </div>
           </details>
-        </div>
-        {% endif %}
-        {% endif %}
-        {% if identity.logged_in %}
-        <div class="subpanel profile-list">
-          <h2>Create New Profile</h2>
-          <form action="/profiles/create" method="post">
-            <input type="text" name="profile_name" placeholder="Profile name" required>
-            <input type="text" name="relays" value="{{ default_relays }}">
-            <label>
-              Existing signer nsec (optional)
-              <input type="text" name="signer_nsec" placeholder="Leave blank to generate a new nsec">
-              <span class="field-help">Matches the CLI: provide an nsec to use it as the profile signer, or leave this blank to generate a new one.</span>
-            </label>
-            <label>
-              <input type="checkbox" name="allow_root_signer" value="true">
-              I understand that using the root admin nsec as a profile signer is discouraged.
-            </label>
-            <button type="submit">Create Relay-Backed Profile</button>
-          </form>
         </div>
         {% endif %}
 
@@ -510,7 +511,7 @@
             <input type="file" name="file" required>
             <label>
               Relay domains or URLs
-              <input type="text" name="relays" value="{{ default_relays }}" placeholder="relay.getsafebox.app, relay.damus.io">
+              <input type="text" name="relays" value="{{ default_relays }}" placeholder="relay.openetr.org, relay.damus.io">
               <span class="field-help">Enter one or more relays separated by commas or spaces. Plain domain names are normalized to <code>wss://</code> automatically, and each relay is validated before publish.</span>
             </label>
             <input type="text" name="comment" placeholder="Optional comment">
