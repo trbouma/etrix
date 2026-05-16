@@ -316,6 +316,11 @@
       <div class="top-nav">
         <a href="/overview">Overview</a>
         <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">GitHub</a>
+        {% if identity.logged_in %}
+        <a href="/logout">Logout</a>
+        {% else %}
+        <a href="/login">Login</a>
+        {% endif %}
       </div>
       <header class="page-hero">
         <p class="eyebrow">Durable Control. Portable Records.</p>
@@ -397,28 +402,12 @@
           </form>
           <div class="button-row">
             <button type="button" class="ghost-button" onclick="document.getElementById('backup-key-dialog').showModal()">Backup Key</button>
-            <form action="/logout" method="post">
-              <button type="submit">Logout</button>
-            </form>
           </div>
           {% else %}
           <p>No nsec session is active.</p>
           <p class="field-help">
-            <strong>Login with nsec</strong> is for an existing relay-backed identity that can be recovered from the bootstrap relay set.
-            <strong>Generate New nsec</strong> is for creating a brand-new identity and bootstrapping it on the selected relay set.
+            Most visitors can query records without logging in. Use the <a href="/login">Login</a> page only if you need profile management, record issuance, or relay-backed identity recovery.
           </p>
-          <form action="/login" method="post">
-            <input type="text" name="nsec" placeholder="nsec1..." required>
-            <label>
-              Bootstrap relay(s) for recovery (optional)
-              <input type="text" name="bootstrap_relays" value="{{ bootstrap_relays }}" placeholder="Leave blank to use the app default">
-              <span class="field-help">Only specify this if your relay-backed profile data is stored on a different bootstrap relay or relay set.</span>
-            </label>
-            <div class="button-row">
-              <button type="submit">Login with nsec</button>
-              <button type="submit" formaction="/generate-login" formmethod="post" formnovalidate>Generate New nsec</button>
-            </div>
-          </form>
           {% endif %}
         </div>
 

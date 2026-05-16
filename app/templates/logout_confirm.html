@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ app_title }} Logout</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --bg: #f5efe3;
+        --panel: #fffaf4;
+        --text: #1f1a14;
+        --accent: #8a5b2d;
+        --border: #d7c3a2;
+        --muted: #675c4d;
+        --heading: #18130d;
+      }
+      body {
+        margin: 0;
+        font-family: "Manrope", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(244, 198, 112, 0.22) 0, transparent 24rem),
+          radial-gradient(circle at top right, rgba(166, 118, 58, 0.08) 0, transparent 20rem),
+          linear-gradient(180deg, #f8f1e4 0%, var(--bg) 100%);
+      }
+      main {
+        max-width: 48rem;
+        margin: 3rem auto;
+        padding: 0 1.25rem;
+      }
+      .panel {
+        background: color-mix(in srgb, var(--panel) 96%, white);
+        border: 1px solid var(--border);
+        border-radius: 1.35rem;
+        padding: 1.5rem;
+        box-shadow: 0 12px 32px rgba(71, 44, 17, 0.08);
+        margin-bottom: 1rem;
+      }
+      .top-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+      .top-nav a {
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .eyebrow {
+        margin: 0 0 0.65rem;
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      h1 {
+        color: var(--heading);
+        letter-spacing: -0.035em;
+      }
+      p {
+        color: var(--muted);
+        line-height: 1.7;
+      }
+      .actions {
+        display: flex;
+        gap: 0.85rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 1rem;
+      }
+      button {
+        width: fit-content;
+        border: 0;
+        border-radius: 999px;
+        padding: 0.9rem 1.3rem;
+        background: var(--accent);
+        color: white;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 8px 24px rgba(138, 91, 45, 0.22);
+      }
+      .ghost {
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="top-nav">
+        <a href="/">Home</a>
+        <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="/logout">Logout</a>
+      </div>
+      <section class="panel">
+        <p class="eyebrow">OpenETR</p>
+        <h1>Logout</h1>
+        <p>You are currently logged in as <code title="{{ identity.npub }}">{{ identity.npub | short_id }}</code>.</p>
+        <p>Logging out clears the encrypted browser session, including the selected profile and relay overrides for this session.</p>
+        <form action="/logout" method="post" class="actions">
+          <button type="submit">Confirm Logout</button>
+          <a class="ghost" href="/">Cancel</a>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

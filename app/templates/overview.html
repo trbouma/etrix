@@ -103,6 +103,11 @@
       <div class="top-nav">
         <a href="/">Home</a>
         <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">GitHub</a>
+        {% if identity.logged_in %}
+        <a href="/logout">Logout</a>
+        {% else %}
+        <a href="/login">Login</a>
+        {% endif %}
       </div>
 
       <section class="panel">

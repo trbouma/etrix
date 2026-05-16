@@ -155,7 +155,12 @@
     <main>
       <div class="top-nav">
         <a href="/">Home</a>
-        <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">Open GitHub Pages Site</a>
+        <a href="{{ site_url }}" target="_blank" rel="noopener noreferrer">GitHub</a>
+        {% if identity.logged_in %}
+        <a href="/logout">Logout</a>
+        {% else %}
+        <a href="/login">Login</a>
+        {% endif %}
       </div>
       {% if error_message %}
       <div class="notice error">{{ error_message }}</div>

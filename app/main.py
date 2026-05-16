@@ -347,6 +347,18 @@ async def index(
     )
 
 
+@app.get("/login")
+async def login_page(
+    request: Request,
+    template_context: dict[str, Any] = Depends(get_default_template_context),
+):
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        template_context,
+    )
+
+
 @app.get("/overview")
 async def overview_page(
     request: Request,
@@ -379,7 +391,7 @@ async def login(
         template_context["error_message"] = str(exc)
         return templates.TemplateResponse(
             request,
-            "index.html",
+            "login.html",
             template_context,
             status_code=400,
         )
@@ -390,7 +402,7 @@ async def login(
         template_context["error_message"] = str(exc)
         return templates.TemplateResponse(
             request,
-            "index.html",
+            "login.html",
             template_context,
             status_code=400,
         )
@@ -407,7 +419,7 @@ async def login(
         template_context["error_message"] = str(exc)
         return templates.TemplateResponse(
             request,
-            "index.html",
+            "login.html",
             template_context,
             status_code=400,
         )
@@ -422,7 +434,7 @@ async def login(
         )
         return templates.TemplateResponse(
             request,
-            "index.html",
+            "login.html",
             template_context,
             status_code=400,
         )
@@ -436,6 +448,24 @@ async def login(
     return templates.TemplateResponse(
         request,
         "index.html",
+        template_context,
+    )
+
+
+@app.get("/logout")
+async def logout_page(
+    request: Request,
+    template_context: dict[str, Any] = Depends(get_default_template_context),
+):
+    if not template_context["identity"].get("logged_in"):
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            template_context,
+        )
+    return templates.TemplateResponse(
+        request,
+        "logout_confirm.html",
         template_context,
     )
 
@@ -471,7 +501,7 @@ async def generate_login(
         template_context["error_message"] = str(exc)
         return templates.TemplateResponse(
             request,
-            "index.html",
+            "login.html",
             template_context,
             status_code=400,
         )
@@ -489,7 +519,7 @@ async def generate_login(
         template_context["error_message"] = str(exc)
         return templates.TemplateResponse(
             request,
-            "index.html",
+            "login.html",
             template_context,
             status_code=400,
         )
@@ -509,7 +539,7 @@ async def generate_login(
     template_context["generated_nsec"] = generated_nsec
     return templates.TemplateResponse(
         request,
-        "index.html",
+        "login.html",
         template_context,
     )
 

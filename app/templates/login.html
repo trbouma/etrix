@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ app_title }} Settings</title>
+    <title>{{ app_title }} Login</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -22,11 +22,12 @@
         font-family: "Manrope", sans-serif;
         color: var(--text);
         background:
-          radial-gradient(circle at top left, #fde7be 0, transparent 26rem),
+          radial-gradient(circle at top left, rgba(244, 198, 112, 0.22) 0, transparent 24rem),
+          radial-gradient(circle at top right, rgba(166, 118, 58, 0.08) 0, transparent 20rem),
           linear-gradient(180deg, #f8f1e4 0%, var(--bg) 100%);
       }
       main {
-        max-width: 62rem;
+        max-width: 54rem;
         margin: 3rem auto;
         padding: 0 1.25rem;
       }
@@ -38,6 +39,25 @@
         box-shadow: 0 12px 32px rgba(71, 44, 17, 0.08);
         margin-bottom: 1rem;
       }
+      .top-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+      .top-nav a {
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 600;
+      }
+      .eyebrow {
+        margin: 0 0 0.65rem;
+        color: var(--accent);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
       h1, h2 {
         color: var(--heading);
         letter-spacing: -0.035em;
@@ -46,26 +66,10 @@
         color: var(--muted);
         line-height: 1.7;
       }
-      .notice {
-        margin-bottom: 1rem;
-        padding: 0.8rem 1rem;
-        border-radius: 0.75rem;
-      }
-      .notice.error {
-        background: #fff1ec;
-        border: 1px solid #e1a18d;
-      }
-      .notice.success {
-        background: #eef8ee;
-        border: 1px solid #9cc39c;
-      }
-      .notice.info {
-        background: #f2f5f7;
-        border: 1px solid #b8c8d3;
-      }
       form {
         display: grid;
-        gap: 1rem;
+        gap: 0.9rem;
+        margin-top: 1.25rem;
         width: 100%;
       }
       label {
@@ -87,42 +91,46 @@
         margin: 0;
         font-size: 0.92rem;
         color: var(--muted);
-        font-weight: 400;
+      }
+      .notice {
+        margin-bottom: 1rem;
+        padding: 0.8rem 1rem;
+        border-radius: 0.75rem;
+      }
+      .notice.error {
+        background: #fff1ec;
+        border: 1px solid #e1a18d;
+      }
+      .notice.success {
+        background: #eef8ee;
+        border: 1px solid #9cc39c;
+      }
+      .notice.warning {
+        background: #fff5e3;
+        border: 1px solid #d1a96f;
+      }
+      .notice.info {
+        background: #f2f5f7;
+        border: 1px solid #b8c8d3;
+      }
+      .button-row {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 0.25rem;
       }
       button {
         width: fit-content;
         border: 0;
         border-radius: 999px;
-        padding: 0.8rem 1.2rem;
+        padding: 0.9rem 1.3rem;
         background: var(--accent);
         color: white;
-        font-size: 1rem;
+        font: inherit;
+        font-weight: 700;
         cursor: pointer;
-      }
-      .actions {
-        display: flex;
-        gap: 0.85rem;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-      .top-nav {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 1rem;
-      }
-      .top-nav a {
-        color: var(--accent);
-        text-decoration: none;
-        font-weight: 600;
-      }
-      .eyebrow {
-        margin: 0 0 0.65rem;
-        color: var(--accent);
-        font-size: 0.78rem;
-        font-weight: 800;
-        letter-spacing: 0.16em;
-        text-transform: uppercase;
+        box-shadow: 0 8px 24px rgba(138, 91, 45, 0.22);
       }
       code {
         background: rgba(138, 91, 45, 0.1);
@@ -159,38 +167,36 @@
       {% if success_message %}
       <div class="notice success">{{ success_message }}</div>
       {% endif %}
-      <div class="notice info">
-        These relay settings apply to this browser session. Bootstrap relays support root-key profile discovery and recovery; working relays are used by default for record queries and issue actions. Both fields accept comma- or space-delimited relay entries.
+      {% if generated_nsec %}
+      <div class="notice warning">
+        <strong>Important:</strong> copy and safeguard this generated <code>nsec</code> now. If your browser session ends, you will need this key to log back in.
+        <div style="margin-top:0.75rem;"><code>{{ generated_nsec }}</code></div>
       </div>
+      {% endif %}
 
       <section class="panel">
         <p class="eyebrow">OpenETR</p>
-        <h1>Settings</h1>
+        <h1>Login</h1>
         <p>
-          {% if identity.logged_in %}
-          Logged in as <code title="{{ identity.npub }}">{{ identity.npub | short_id }}</code>.
-          {% else %}
-          No nsec session is active.
-          {% endif %}
+          <strong>Login with nsec</strong> is for an existing relay-backed identity that can be recovered from the bootstrap relay set.
+          <strong>Generate New nsec</strong> is for creating a brand-new identity and bootstrapping it on the selected relay set.
         </p>
       </section>
 
       <section class="panel">
-        <h2>Relay Configuration</h2>
-        <form action="/settings" method="post">
+        <div class="notice info">
+          Leave the bootstrap relay field blank to use the app default. Specify a relay or relay set only if your relay-backed profile data lives somewhere else.
+        </div>
+        <form action="/login" method="post">
+          <input type="text" name="nsec" placeholder="nsec1..." required>
           <label>
-            Bootstrap relay(s)
-            <input type="text" name="bootstrap_relays" value="{{ bootstrap_relays }}" placeholder="wss://relay.example.com">
-            <span class="field-help">Used with the root key for profile discovery, recovery, and relay-backed signer management. Separate multiple relays with commas or spaces.</span>
+            Bootstrap relay(s) for recovery (optional)
+            <input type="text" name="bootstrap_relays" value="{{ bootstrap_relays }}" placeholder="relay.openetr.org relay.damus.io">
+            <span class="field-help">You can separate multiple relays with commas or spaces. Plain domain names are normalized to <code>wss://</code> automatically.</span>
           </label>
-          <label>
-            Working relay(s)
-            <input type="text" name="default_relays" value="{{ default_relays }}" placeholder="wss://relay.example.com,wss://relay.backup.example.com">
-            <span class="field-help">Used by default for record queries and ETR issue operations in this session. Separate multiple relays with commas or spaces.</span>
-          </label>
-          <div class="actions">
-            <button type="submit">Save Relay Settings</button>
-            <a href="/">Return Home</a>
+          <div class="button-row">
+            <button type="submit">Login with nsec</button>
+            <button type="submit" formaction="/generate-login" formmethod="post" formnovalidate>Generate New nsec</button>
           </div>
         </form>
       </section>
