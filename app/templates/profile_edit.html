@@ -63,6 +63,10 @@
         background: #f2f5f7;
         border: 1px solid #b8c8d3;
       }
+      .notice.warning {
+        background: #fff5e3;
+        border: 1px solid #d1a96f;
+      }
       .grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -148,6 +152,37 @@
         font-weight: 800;
         letter-spacing: 0.16em;
         text-transform: uppercase;
+      }
+      dialog {
+        width: min(42rem, calc(100vw - 2rem));
+        border: 1px solid var(--border);
+        border-radius: 1.2rem;
+        padding: 0;
+        background: var(--panel);
+        box-shadow: 0 28px 80px rgba(71, 44, 17, 0.2);
+      }
+      dialog::backdrop {
+        background: rgba(31, 26, 20, 0.42);
+      }
+      .dialog-body {
+        padding: 1.4rem;
+      }
+      .dialog-actions {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 1rem;
+      }
+      .seed-phrase {
+        display: none;
+        margin-top: 1rem;
+        padding: 0.85rem 1rem;
+        border-radius: 0.75rem;
+        background: rgba(138, 91, 45, 0.08);
+      }
+      .seed-phrase.visible {
+        display: block;
       }
     </style>
   </head>
@@ -258,6 +293,27 @@
         {% endif %}
       </section>
 
+      <section class="panel">
+        <h2>Bitcoin Wallet Recovery</h2>
+        <p>
+          The selected signer <code>nsec</code> maps to the same secp256k1 private key used in Bitcoin.
+          This pane derives corresponding Bitcoin addresses for that exact key.
+        </p>
+        <div class="kv">
+          <div>Native SegWit</div><div class="mono">{{ bitcoin_wallet.p2wpkh }}</div>
+          <div>Legacy P2PKH</div><div class="mono">{{ bitcoin_wallet.p2pkh }}</div>
+          <div>Public Key</div><div class="mono">{{ bitcoin_wallet.public_key_hex }}</div>
+        </div>
+        <div class="notice warning" style="margin-top: 1rem;">
+          Revealing the seed phrase gives full spending control over the same underlying private key.
+          Keep it offline and private. Some Bitcoin wallet apps will import the phrase as an HD wallet seed,
+          which may not recreate the exact same single-key addresses shown above.
+        </div>
+        <div class="actions">
+          <button type="button" onclick="document.getElementById('wallet-seed-dialog').showModal()">Reveal Seed Phrase</button>
+        </div>
+      </section>
+
       {% if publish_result %}
       <section class="panel">
         <h2>Publish Result</h2>
@@ -279,6 +335,23 @@
         {% endif %}
       </section>
       {% endif %}
+
+      <dialog id="wallet-seed-dialog">
+        <div class="dialog-body">
+          <h2>Reveal Bitcoin Wallet Seed Phrase</h2>
+          <div class="notice warning">
+            Only reveal this phrase if you intend to type it into a wallet you trust. Anyone with these words can spend funds controlled by the same private key.
+          </div>
+          <p>
+            The phrase below is generated directly from the current signer <code>nsec</code>. Wallet compatibility can vary, so compare the resulting wallet addresses against the derived addresses shown on this page before sending significant funds.
+          </p>
+          <div class="dialog-actions">
+            <button type="button" onclick="document.getElementById('wallet-seed-phrase').classList.add('visible')">I Understand, Reveal Phrase</button>
+            <button type="button" onclick="document.getElementById('wallet-seed-dialog').close()">Close</button>
+          </div>
+          <div id="wallet-seed-phrase" class="seed-phrase mono">{{ bitcoin_wallet.mnemonic }}</div>
+        </div>
+      </dialog>
     </main>
   </body>
 </html>
