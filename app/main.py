@@ -29,9 +29,22 @@ SESSION_SIGNER_NSEC_KEY = "openetr_signer_nsec"
 SESSION_PROFILE_KEY = "openetr_profile"
 SESSION_BOOTSTRAP_RELAYS_KEY = "openetr_bootstrap_relays"
 SESSION_DEFAULT_RELAYS_KEY = "openetr_default_relays"
-SESSION_SECRET = os.environ.get("OPENETR_APP_SESSION_SECRET", "openetr-demo-session-secret")
-SITE_URL = os.environ.get("OPENETR_SITE_URL", "https://trbouma.github.io/openetr/")
-GIT_COMMIT = os.environ.get("OPENETR_GIT_COMMIT", "unknown")
+
+
+def read_runtime_value(name: str, default: str | None = None) -> str | None:
+    file_path = (os.environ.get(f"{name}_FILE") or "").strip()
+    if file_path:
+        return Path(file_path).read_text(encoding="utf-8").strip()
+
+    value = os.environ.get(name)
+    if value not in (None, ""):
+        return value
+    return default
+
+
+SESSION_SECRET = read_runtime_value("OPENETR_APP_SESSION_SECRET", "openetr-demo-session-secret") or "openetr-demo-session-secret"
+SITE_URL = read_runtime_value("OPENETR_SITE_URL", "https://trbouma.github.io/openetr/") or "https://trbouma.github.io/openetr/"
+GIT_COMMIT = read_runtime_value("OPENETR_GIT_COMMIT", "unknown") or "unknown"
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 APP_ASSETS_DIR = Path(__file__).parent / "assets"
@@ -49,7 +62,7 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 
 def configured_home_relays() -> str:
-    return normalize_relays(os.environ.get("OPENETR_HOME_RELAYS") or DEFAULT_RELAYS)
+    return normalize_relays(read_runtime_value("OPENETR_HOME_RELAYS", DEFAULT_RELAYS) or DEFAULT_RELAYS)
 
 
 def bytes_to_nobj(data: bytes, prefix: str = NOBJ_PREFIX) -> str:

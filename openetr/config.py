@@ -44,6 +44,17 @@ _REQUEST_RUNTIME_BOOTSTRAP: contextvars.ContextVar[dict[str, str]] = contextvars
 )
 
 
+def _read_runtime_value(name: str) -> str | None:
+    file_path = (os.environ.get(f"{name}_FILE") or "").strip()
+    if file_path:
+        return Path(file_path).read_text(encoding="utf-8").strip()
+
+    value = os.environ.get(name)
+    if value in (None, ""):
+        return None
+    return value
+
+
 def _normalize_relays(relays: str | list[str] | tuple[str, ...] | None) -> list[str]:
     if relays is None:
         return []
@@ -64,8 +75,8 @@ def _normalize_relays(relays: str | list[str] | tuple[str, ...] | None) -> list[
 
 def _runtime_bootstrap_overrides() -> dict[str, str]:
     overrides: dict[str, str] = {}
-    env_root = os.environ.get("OPENETR_ROOT_NSEC")
-    env_home_relays = os.environ.get("OPENETR_HOME_RELAYS")
+    env_root = _read_runtime_value("OPENETR_ROOT_NSEC")
+    env_home_relays = _read_runtime_value("OPENETR_HOME_RELAYS")
     if env_root:
         overrides[ROOT_NSEC_KEY] = env_root
     if env_home_relays:

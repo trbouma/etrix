@@ -106,6 +106,12 @@ OPENETR_GIT_COMMIT=$(git rev-parse --short HEAD) \
 docker compose up --build
 ```
 
+If you later move to mounted secrets, the web app and runtime bootstrap also support `_FILE` variants:
+
+```sh
+OPENETR_APP_SESSION_SECRET_FILE=/run/secrets/openetr_session_secret OPENETR_ROOT_NSEC_FILE=/run/secrets/openetr_root_nsec OPENETR_HOME_RELAYS_FILE=/run/secrets/openetr_home_relays OPENETR_GIT_COMMIT=$(git rev-parse --short HEAD) docker compose up --build
+```
+
 If you change the runtime bootstrap values, restart the service:
 
 ```sh
@@ -137,7 +143,11 @@ The intended container deployment model is stateless:
 
 For the web app to discover relay-backed profiles and encrypted profile signer records, supply:
 
-- `OPENETR_ROOT_NSEC`
-- `OPENETR_HOME_RELAYS`
+- `OPENETR_ROOT_NSEC` or `OPENETR_ROOT_NSEC_FILE`
+- `OPENETR_HOME_RELAYS` or `OPENETR_HOME_RELAYS_FILE`
 
-The browser session may still hold the logged-in `nsec` in a signed cookie for this demo app, but the container itself does not rely on local profile or session files.
+For browser-session encryption, you can also use:
+
+- `OPENETR_APP_SESSION_SECRET` or `OPENETR_APP_SESSION_SECRET_FILE`
+
+The browser session may still hold the logged-in `nsec` in an encrypted cookie for this demo app, but the container itself does not rely on local profile or session files.
