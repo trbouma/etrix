@@ -11,6 +11,7 @@ from monstr.encrypt import Keys
 from monstr.event.event import Event
 import yaml
 
+from openetr.bitcoin import derive_bitcoin_material_with_balance
 from openetr.config import (
     ALIASES_KEY,
     CONFIG_AS_USER_KEY,
@@ -344,6 +345,41 @@ def get_object_id(digest_file: str, bech32: bool) -> None:
     """Return the object identifier for a file in a pipe-friendly format."""
     digest_hex, _ = resolve_query_digest(digest=None, digest_file=Path(digest_file))
     click.echo(format_object_identifier(digest_hex) if bech32 else digest_hex)
+
+
+@click.command("get-bitcoin-address")
+@click.argument("nostr_key")
+@click.option("--show-mnemonic", is_flag=True, help="Also print a mnemonic when an nsec is supplied.")
+def get_bitcoin_address(nostr_key: str, show_mnemonic: bool) -> None:
+    """Return Bitcoin addresses derived from an nsec or npub."""
+    wallet = derive_bitcoin_material_with_balance(nostr_key)
+    click.echo(f"nostr_key:       {nostr_key}")
+    click.echo(f"npub:            {wallet['npub']}")
+    if wallet["private_key_hex"]:
+        click.echo(f"private_key_hex: {wallet['private_key_hex']}")
+        click.echo(f"bip340_normalized: {wallet['bip340_normalized']}")
+        click.echo(f"wif_compressed:  {wallet['wif_compressed']}")
+    click.echo(f"public_key_hex:  {wallet['public_key_hex']}")
+    click.echo(f"p2pkh:           {wallet['p2pkh']}")
+    click.echo(f"p2wpkh:          {wallet['p2wpkh']}")
+    if wallet["balance"]:
+        click.echo(f"balance_sats:    {wallet['balance']['total_sats']}")
+        click.echo(f"confirmed_sats:  {wallet['balance']['confirmed_sats']}")
+        click.echo(f"mempool_sats:    {wallet['balance']['mempool_sats']}")
+        click.echo(f"balance_source:  {wallet['balance']['api_base']}")
+    elif wallet["balance_error"]:
+        click.echo(f"balance_error:   {wallet['balance_error']}")
+    if wallet["warning"]:
+        click.echo(f"warning:         {wallet['warning']}")
+    if show_mnemonic and wallet["mnemonic"]:
+        click.echo(f"mnemonic:        {wallet['mnemonic']}")
+        click.echo(
+            "warning:         this mnemonic encodes the canonical BIP-340-normalized 32-byte private key, "
+            "but many wallet apps will treat it as an HD-wallet seed and may not recreate "
+            "the same single-key Bitcoin address."
+        )
+    elif show_mnemonic:
+        click.echo("mnemonic:        unavailable for public-only npub input")
 
 
 @click.command("validate")

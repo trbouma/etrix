@@ -1,5 +1,5 @@
 import click
-from openetr.commands.core import alias_group, bootstrap, get_object_id, info, init_config, migrate_config, profile_group, set_config, trivia, validate, version, whoami
+from openetr.commands.core import alias_group, bootstrap, get_bitcoin_address, get_object_id, info, init_config, migrate_config, profile_group, set_config, trivia, validate, version, whoami
 from openetr.commands.publish import issue_etr, publish_object, publish_profile, terminate_etr, transfer_group
 from openetr.commands.query import query_etr, query_object, query_profile, verify
 from openetr.config import HOME_RELAY_KEY, ROOT_NSEC_KEY, USER_CONFIG_PATH, ensure_root_bootstrap, runtime_bootstrap_enabled
@@ -86,6 +86,7 @@ main.add_command(version)
 main.add_command(info)
 main.add_command(whoami)
 main.add_command(get_object_id)
+main.add_command(get_bitcoin_address)
 main.add_command(validate)
 main.add_command(init_config)
 main.add_command(bootstrap)

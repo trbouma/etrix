@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import contextmanager
 import hashlib
 import os
@@ -10,11 +11,11 @@ from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from monstr.encrypt import Keys
-import secp256k1
 from starlette.staticfiles import StaticFiles
 
+from openetr.bitcoin import derive_bitcoin_wallet_material, fetch_blockstream_wallet_balance_sats
 from app.encrypted_session import EncryptedSessionMiddleware
-from openetr.config import DEFAULT_LIMIT, DEFAULT_PROFILE_NAME, DEFAULT_QUERY_TIMEOUT, DEFAULT_RELAYS, _async_load_profile_record, _async_load_profile_secret, _async_load_profiles_index, generate_recovery_phrase_from_nsec, load_user_config, packaged_defaults, reset_runtime_bootstrap_overrides, set_runtime_bootstrap_overrides
+from openetr.config import DEFAULT_LIMIT, DEFAULT_PROFILE_NAME, DEFAULT_QUERY_TIMEOUT, DEFAULT_RELAYS, _async_load_profile_record, _async_load_profile_secret, _async_load_profiles_index, load_user_config, packaged_defaults, reset_runtime_bootstrap_overrides, set_runtime_bootstrap_overrides
 from openetr.guards import evaluate_issue_etr_guard
 from openetr.helpers import format_object_identifier, format_pubkey, normalize_relays, resolve_keys, validate_relays
 from openetr.services.issue_etr import publish_issue_etr
@@ -47,6 +48,7 @@ def read_runtime_value(name: str, default: str | None = None) -> str | None:
 SESSION_SECRET = read_runtime_value("OPENETR_APP_SESSION_SECRET", "openetr-demo-session-secret") or "openetr-demo-session-secret"
 SITE_URL = read_runtime_value("OPENETR_SITE_URL", "https://trbouma.github.io/openetr/") or "https://trbouma.github.io/openetr/"
 GIT_COMMIT = read_runtime_value("OPENETR_GIT_COMMIT", "unknown") or "unknown"
+BLOCKSTREAM_API_BASE = read_runtime_value("OPENETR_BLOCKSTREAM_API_BASE", "https://blockstream.info/api") or "https://blockstream.info/api"
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 APP_ASSETS_DIR = Path(__file__).parent / "assets"
@@ -74,50 +76,6 @@ def bytes_to_nobj(data: bytes, prefix: str = NOBJ_PREFIX) -> str:
     return bech32.bech32_encode(prefix, converted)
 
 
-def b58encode(data: bytes) -> str:
-    alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-    number = int.from_bytes(data, "big")
-    encoded: list[str] = []
-    while number:
-        number, remainder = divmod(number, 58)
-        encoded.append(alphabet[remainder])
-    prefix = "1" * (len(data) - len(data.lstrip(b"\x00")))
-    return prefix + "".join(reversed(encoded or ["1"]))
-
-
-def b58check(version: bytes, payload: bytes) -> str:
-    body = version + payload
-    checksum = hashlib.sha256(hashlib.sha256(body).digest()).digest()[:4]
-    return b58encode(body + checksum)
-
-
-def derive_compressed_pubkey(privkey_hex: str) -> bytes:
-    key = secp256k1.PrivateKey(bytes.fromhex(privkey_hex), raw=True)
-    return key.pubkey.serialize(compressed=True)
-
-
-def bech32_segwit_address(pubkey_hash: bytes, hrp: str = "bc", witness_version: int = 0) -> str:
-    data = [witness_version] + bech32.convertbits(pubkey_hash, 8, 5)
-    return bech32.bech32_encode(hrp, data)
-
-
-def derive_bitcoin_wallet_material(nsec: str) -> dict[str, str]:
-    keys = resolve_keys(nsec)
-    privkey_hex = keys.private_key_hex()
-    if privkey_hex is None:
-        raise click.ClickException("session signer is missing a private key")
-
-    compressed_pubkey = derive_compressed_pubkey(privkey_hex)
-    pubkey_hash = hashlib.new("ripemd160", hashlib.sha256(compressed_pubkey).digest()).digest()
-    mnemonic = generate_recovery_phrase_from_nsec(nsec)
-    return {
-        "public_key_hex": compressed_pubkey.hex(),
-        "p2pkh": b58check(b"\x00", pubkey_hash),
-        "p2wpkh": bech32_segwit_address(pubkey_hash),
-        "mnemonic": mnemonic or "Unavailable: optional mnemonic dependency is not installed.",
-    }
-
-
 def short_id(value: str | None, head: int = 12, tail: int = 8) -> str:
     if not value:
         return ""
@@ -127,6 +85,22 @@ def short_id(value: str | None, head: int = 12, tail: int = 8) -> str:
 
 
 templates.env.filters["short_id"] = short_id
+
+
+async def build_bitcoin_wallet_context(identity: dict[str, Any]) -> dict[str, Any]:
+    wallet = derive_bitcoin_wallet_material(identity["nsec"])
+    try:
+        wallet["balance"] = await asyncio.to_thread(
+            fetch_blockstream_wallet_balance_sats,
+            wallet,
+            BLOCKSTREAM_API_BASE,
+            5.0,
+        )
+        wallet["balance_error"] = None
+    except click.ClickException as exc:
+        wallet["balance"] = None
+        wallet["balance_error"] = str(exc)
+    return wallet
 
 def session_identity(request: Request) -> dict[str, Any]:
     root_nsec = request.session.get(SESSION_ROOT_NSEC_KEY)
@@ -736,7 +710,7 @@ async def edit_profile_page(
             timeout=DEFAULT_QUERY_TIMEOUT,
             ssl_disable_verify=False,
         ) or {}
-    bitcoin_wallet = derive_bitcoin_wallet_material(identity["nsec"])
+    bitcoin_wallet = await build_bitcoin_wallet_context(identity)
     return templates.TemplateResponse(
         request,
         "profile_edit.html",
@@ -816,7 +790,7 @@ async def edit_profile_submit(
             "profile_name": identity["profile"],
             "profile_fields": field_values,
             "current_profile": [],
-            "bitcoin_wallet": derive_bitcoin_wallet_material(identity["nsec"]),
+            "bitcoin_wallet": await build_bitcoin_wallet_context(identity),
             "error_message": str(exc),
             "success_message": None,
             "publish_result": None,
@@ -854,7 +828,7 @@ async def edit_profile_submit(
                 "profile_name": identity["profile"],
                 "profile_fields": field_values,
                 "current_profile": compact_profile(current_profile),
-                "bitcoin_wallet": derive_bitcoin_wallet_material(identity["nsec"]),
+                "bitcoin_wallet": await build_bitcoin_wallet_context(identity),
                 "error_message": str(exc),
                 "success_message": None,
                 "publish_result": None,
@@ -875,7 +849,7 @@ async def edit_profile_submit(
             "profile_name": identity["profile"],
             "profile_fields": profile_form_values(latest_profile),
             "current_profile": compact_profile(latest_profile),
-            "bitcoin_wallet": derive_bitcoin_wallet_material(identity["nsec"]),
+            "bitcoin_wallet": await build_bitcoin_wallet_context(identity),
             "error_message": None,
             "success_message": "Published updated social profile.",
             "publish_result": publish_result,

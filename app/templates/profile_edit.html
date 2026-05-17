@@ -1,3 +1,14 @@
+{% macro qr_address(label, address) -%}
+<span class="qr-address" data-address="{{ address }}" tabindex="0">
+  <span class="mono address-value">{{ address }}</span>
+  <span class="qr-popover">
+    <div class="qr-label">{{ label }}</div>
+    <div class="qr-canvas"></div>
+    <div class="mono">{{ address }}</div>
+  </span>
+</span>
+{%- endmacro %}
+
 <!doctype html>
 <html lang="en">
   <head>
@@ -184,6 +195,61 @@
       .seed-phrase.visible {
         display: block;
       }
+      .qr-address {
+        position: relative;
+        display: inline-block;
+        cursor: pointer;
+      }
+      .qr-address .address-value {
+        text-decoration: underline dotted;
+        text-underline-offset: 0.18rem;
+      }
+      .qr-popover {
+        position: absolute;
+        left: 0;
+        top: calc(100% + 0.6rem);
+        display: none;
+        z-index: 20;
+        min-width: 12rem;
+        padding: 0.8rem;
+        border: 1px solid var(--border);
+        border-radius: 0.9rem;
+        background: rgba(255, 250, 244, 0.98);
+        box-shadow: 0 18px 40px rgba(71, 44, 17, 0.16);
+      }
+      .qr-address:hover .qr-popover,
+      .qr-address:focus-within .qr-popover,
+      .qr-address.open .qr-popover {
+        display: block;
+      }
+      .qr-canvas {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 0.55rem;
+      }
+      .qr-canvas img,
+      .qr-canvas canvas {
+        width: 144px;
+        height: 144px;
+      }
+      .qr-label {
+        margin: 0 0 0.35rem;
+        color: var(--accent);
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .qr-popover .mono {
+        font-size: 0.8rem;
+      }
+      @media (max-width: 720px) {
+        .qr-popover {
+          left: 50%;
+          transform: translateX(-50%);
+          width: min(16rem, calc(100vw - 3rem));
+        }
+      }
     </style>
   </head>
   <body>
@@ -300,10 +366,22 @@
           This pane derives corresponding Bitcoin addresses for that exact key.
         </p>
         <div class="kv">
-          <div>Native SegWit</div><div class="mono">{{ bitcoin_wallet.p2wpkh }}</div>
-          <div>Legacy P2PKH</div><div class="mono">{{ bitcoin_wallet.p2pkh }}</div>
+          <div>npub</div><div class="mono">{{ identity.npub }}</div>
+          <div>Native SegWit</div><div>{{ qr_address('Native SegWit', bitcoin_wallet.p2wpkh) }}</div>
+          <div>Legacy P2PKH</div><div>{{ qr_address('Legacy P2PKH', bitcoin_wallet.p2pkh) }}</div>
           <div>Public Key</div><div class="mono">{{ bitcoin_wallet.public_key_hex }}</div>
+          {% if bitcoin_wallet.balance %}
+          <div>Total Balance</div><div>{{ bitcoin_wallet.balance.total_sats }} sats</div>
+          <div>Native SegWit Balance</div><div>{{ bitcoin_wallet.balance.native_segwit.total_sats }} sats</div>
+          <div>Legacy P2PKH Balance</div><div>{{ bitcoin_wallet.balance.legacy_p2pkh.total_sats }} sats</div>
+          <div>Confirmed</div><div>{{ bitcoin_wallet.balance.confirmed_sats }} sats</div>
+          <div>Mempool</div><div>{{ bitcoin_wallet.balance.mempool_sats }} sats</div>
+          <div>Balance Source</div><div class="mono">{{ bitcoin_wallet.balance.api_base }}</div>
+          {% endif %}
         </div>
+        {% if bitcoin_wallet.balance_error %}
+        <div class="notice info" style="margin-top: 1rem;">Bitcoin balance unavailable: {{ bitcoin_wallet.balance_error }}</div>
+        {% endif %}
         <div class="notice warning" style="margin-top: 1rem;">
           Revealing the seed phrase gives full spending control over the same underlying private key.
           Keep it offline and private. Some Bitcoin wallet apps will import the phrase as an HD wallet seed,
@@ -349,9 +427,60 @@
             <button type="button" onclick="document.getElementById('wallet-seed-phrase').classList.add('visible')">I Understand, Reveal Phrase</button>
             <button type="button" onclick="document.getElementById('wallet-seed-dialog').close()">Close</button>
           </div>
-          <div id="wallet-seed-phrase" class="seed-phrase mono">{{ bitcoin_wallet.mnemonic }}</div>
+          <div id="wallet-seed-phrase" class="seed-phrase">
+            <div>
+              <strong>Seed Phrase</strong>
+              <div class="mono" style="margin-top: 0.45rem;">{{ bitcoin_wallet.mnemonic }}</div>
+            </div>
+            <div style="margin-top: 1rem;">
+              <strong>Signer nsec</strong>
+              <div class="mono" style="margin-top: 0.45rem;">{{ identity.nsec }}</div>
+            </div>
+          </div>
         </div>
       </dialog>
     </main>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+      function renderAddressQrs() {
+        document.querySelectorAll('.qr-address').forEach((container) => {
+          const canvas = container.querySelector('.qr-canvas');
+          if (!canvas || canvas.dataset.rendered === 'yes' || typeof QRCode === 'undefined') {
+            return;
+          }
+          const address = container.dataset.address;
+          if (!address) {
+            return;
+          }
+          new QRCode(canvas, {
+            text: address,
+            width: 144,
+            height: 144,
+            correctLevel: QRCode.CorrectLevel.M,
+          });
+          canvas.dataset.rendered = 'yes';
+        });
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        renderAddressQrs();
+        document.querySelectorAll('.qr-address').forEach((container) => {
+          container.addEventListener('click', (event) => {
+            const target = event.target;
+            if (target instanceof HTMLElement && target.closest('.qr-popover')) {
+              return;
+            }
+            container.classList.toggle('open');
+          });
+        });
+        document.addEventListener('click', (event) => {
+          document.querySelectorAll('.qr-address.open').forEach((container) => {
+            if (!container.contains(event.target)) {
+              container.classList.remove('open');
+            }
+          });
+        });
+      });
+    </script>
   </body>
 </html>
