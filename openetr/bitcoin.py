@@ -12,18 +12,11 @@ from monstr.encrypt import Keys
 from openetr.helpers import resolve_keys
 
 SECP256K1_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+BECH32M_CONST = 0x2BC830A3
 
 
 def sha256(data: bytes) -> bytes:
     return hashlib.sha256(data).digest()
-
-
-def ripemd160(data: bytes) -> bytes:
-    return hashlib.new("ripemd160", data).digest()
-
-
-def hash160(data: bytes) -> bytes:
-    return ripemd160(sha256(data))
 
 
 def b58encode(data: bytes) -> str:
@@ -57,6 +50,11 @@ def derive_compressed_pubkey(privkey_bytes: bytes) -> bytes:
     return key.pubkey.serialize(compressed=True)
 
 
+def tagged_hash(tag: str, payload: bytes) -> bytes:
+    tag_hash = sha256(tag.encode("utf-8"))
+    return sha256(tag_hash + tag_hash + payload)
+
+
 def normalize_bip340_private_key(privkey_hex: str) -> tuple[bytes, bytes, bool]:
     scalar = int(privkey_hex, 16)
     if scalar <= 0 or scalar >= SECP256K1_ORDER:
@@ -75,17 +73,40 @@ def normalize_bip340_private_key(privkey_hex: str) -> tuple[bytes, bytes, bool]:
     return normalized_bytes, normalized_pubkey, True
 
 
-def bech32_segwit_address(pubkey_hash: bytes, hrp: str = "bc", witness_version: int = 0) -> str:
-    data = [witness_version] + bech32.convertbits(pubkey_hash, 8, 5)
-    return bech32.bech32_encode(hrp, data)
+def bech32m_create_checksum(hrp: str, data: list[int]) -> list[int]:
+    values = bech32.bech32_hrp_expand(hrp) + list(data)
+    polymod = bech32.bech32_polymod(values + [0, 0, 0, 0, 0, 0]) ^ BECH32M_CONST
+    return [(polymod >> 5 * (5 - i)) & 31 for i in range(6)]
 
 
-def address_set_from_compressed_pubkey(compressed_pubkey: bytes) -> dict[str, str]:
-    pubkey_hash = hash160(compressed_pubkey)
+def bech32m_encode(hrp: str, data: list[int]) -> str:
+    combined = list(data) + bech32m_create_checksum(hrp, data)
+    return hrp + "1" + "".join(bech32.CHARSET[d] for d in combined)
+
+
+def taproot_address(output_key_xonly: bytes, hrp: str = "bc") -> str:
+    data = [1] + bech32.convertbits(output_key_xonly, 8, 5, True)
+    return bech32m_encode(hrp, data)
+
+
+def taproot_material_from_internal_key(internal_key_xonly: bytes) -> dict[str, str]:
+    if len(internal_key_xonly) != 32:
+        raise click.ClickException("taproot internal key must be 32 bytes")
+
+    tweak_bytes = tagged_hash("TapTweak", internal_key_xonly)
+    tweak_int = int.from_bytes(tweak_bytes, "big")
+    if tweak_int >= SECP256K1_ORDER:
+        raise click.ClickException("taproot tweak exceeds the secp256k1 scalar order")
+
+    internal_pubkey = secp256k1.PublicKey(b"\x02" + internal_key_xonly, raw=True)
+    output_pubkey = internal_pubkey.tweak_add(tweak_bytes)
+    output_compressed = output_pubkey.serialize(compressed=True)
+    output_key_xonly = output_compressed[1:]
     return {
-        "public_key_hex": compressed_pubkey.hex(),
-        "p2pkh": b58check(b"\x00", pubkey_hash),
-        "p2wpkh": bech32_segwit_address(pubkey_hash),
+        "internal_public_key_hex": internal_key_xonly.hex(),
+        "taproot_output_key_hex": output_key_xonly.hex(),
+        "taproot_tweak_hex": tweak_bytes.hex(),
+        "p2tr": taproot_address(output_key_xonly),
     }
 
 
@@ -94,37 +115,44 @@ def derive_bitcoin_material_from_nostr_key(nostr_key: str) -> dict[str, str]:
     privkey_hex = keys.private_key_hex()
     warning = ""
     normalized = False
+    internal_privkey_hex = ""
+    taproot_private_key_hex = ""
+
     if privkey_hex is not None:
         normalized_privkey_bytes, compressed_pubkey, normalized = normalize_bip340_private_key(privkey_hex)
-        privkey_hex = normalized_privkey_bytes.hex()
-        addresses = address_set_from_compressed_pubkey(compressed_pubkey)
+        internal_privkey_hex = normalized_privkey_bytes.hex()
+        internal_key_xonly = compressed_pubkey[1:]
+        taproot_material = taproot_material_from_internal_key(internal_key_xonly)
+        tweak_bytes = bytes.fromhex(taproot_material["taproot_tweak_hex"])
+        tweaked_private_key = secp256k1.PrivateKey(normalized_privkey_bytes, raw=True).tweak_add(tweak_bytes)
+        taproot_private_key_hex = tweaked_private_key.hex()
         if normalized:
             warning = (
-                "nsec input was normalized to the BIP-340 even-y representative. The canonical Bitcoin "
-                "private key and addresses below match the x-only Nostr public key, but may differ from the "
-                "raw secp256k1 compression parity of the original secret scalar."
+                "nsec input was normalized to the BIP-340 even-y representative before deriving the Taproot "
+                "internal key. The recovery material below is tied to that canonical internal key."
             )
     else:
         pubkey_hex = keys.public_key_hex()
         if pubkey_hex is None:
             raise click.ClickException("input must be a valid nsec or npub key")
-        canonical_pubkey = bytes.fromhex("02" + pubkey_hex)
+        taproot_material = taproot_material_from_internal_key(bytes.fromhex(pubkey_hex))
         warning = (
-            "npub input uses the BIP-340 x-only public key. OpenETR derives the canonical Bitcoin address "
-            "from the even-y representative, equivalent to compressed 02||x."
+            "npub input uses the BIP-340 x-only public key as the Taproot internal key. OpenETR derives the "
+            "canonical single-key P2TR address using the BIP-341 TapTweak construction."
         )
-        addresses = address_set_from_compressed_pubkey(canonical_pubkey)
 
-    mnemonic = private_key_bytes_to_mnemonic(bytes.fromhex(privkey_hex)) if privkey_hex is not None else None
+    mnemonic = private_key_bytes_to_mnemonic(bytes.fromhex(internal_privkey_hex)) if internal_privkey_hex else None
     npub = keys.public_key_bech32()
     return {
         "npub": npub,
-        "private_key_hex": privkey_hex,
-        "wif_compressed": b58check(b"\x80", bytes.fromhex(privkey_hex) + b"\x01") if privkey_hex is not None else "",
+        "private_key_hex": internal_privkey_hex,
+        "taproot_private_key_hex": taproot_private_key_hex,
+        "internal_wif_compressed": b58check(b"\x80", bytes.fromhex(internal_privkey_hex) + b"\x01") if internal_privkey_hex else "",
+        "taproot_wif": b58check(b"\x80", bytes.fromhex(taproot_private_key_hex) + b"\x01") if taproot_private_key_hex else "",
         "mnemonic": mnemonic or "",
         "warning": warning,
         "bip340_normalized": "yes" if normalized else "no",
-        **addresses,
+        **taproot_material,
     }
 
 
@@ -188,17 +216,14 @@ def fetch_blockstream_wallet_balance_sats(
     api_base: str = "https://blockstream.info/api",
     timeout: float = 5.0,
 ) -> dict[str, object]:
-    segwit = fetch_blockstream_address_balance_sats(wallet_material["p2wpkh"], api_base=api_base, timeout=timeout)
-    legacy = fetch_blockstream_address_balance_sats(wallet_material["p2pkh"], api_base=api_base, timeout=timeout)
+    taproot = fetch_blockstream_address_balance_sats(wallet_material["p2tr"], api_base=api_base, timeout=timeout)
     return {
         "api_base": api_base.rstrip('/'),
-        "native_segwit": segwit,
-        "legacy_p2pkh": legacy,
-        "confirmed_sats": int(segwit["confirmed_sats"]) + int(legacy["confirmed_sats"]),
-        "mempool_sats": int(segwit["mempool_sats"]) + int(legacy["mempool_sats"]),
-        "total_sats": int(segwit["total_sats"]) + int(legacy["total_sats"]),
+        "taproot": taproot,
+        "confirmed_sats": int(taproot["confirmed_sats"]),
+        "mempool_sats": int(taproot["mempool_sats"]),
+        "total_sats": int(taproot["total_sats"]),
     }
-
 
 
 def derive_bitcoin_material_with_balance(
