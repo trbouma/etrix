@@ -11,7 +11,7 @@ from monstr.encrypt import Keys
 from monstr.event.event import Event
 import yaml
 
-from openetr.bitcoin import derive_bitcoin_material_with_balance
+from openetr.bitcoin import create_p2tr_send_result, derive_bitcoin_material_with_balance, broadcast_blockstream_transaction
 from openetr.config import (
     ALIASES_KEY,
     CONFIG_AS_USER_KEY,
@@ -347,10 +347,10 @@ def get_object_id(digest_file: str, bech32: bool) -> None:
     click.echo(format_object_identifier(digest_hex) if bech32 else digest_hex)
 
 
-@click.command("get-bitcoin-address")
+@click.command("get-bitcoin-info")
 @click.argument("nostr_key")
 @click.option("--show-mnemonic", is_flag=True, help="Also print the raw-key mnemonic encoding for reference; this is not the recommended Taproot wallet import format.")
-def get_bitcoin_address(nostr_key: str, show_mnemonic: bool) -> None:
+def get_bitcoin_info(nostr_key: str, show_mnemonic: bool) -> None:
     """Return Bitcoin addresses derived from an nsec or npub."""
     wallet = derive_bitcoin_material_with_balance(nostr_key)
     click.echo(f"nostr_key:       {nostr_key}")
@@ -383,6 +383,61 @@ def get_bitcoin_address(nostr_key: str, show_mnemonic: bool) -> None:
         )
     elif show_mnemonic:
         click.echo("mnemonic:        unavailable for public-only npub input")
+
+
+@click.command("send-bitcoin")
+@click.argument("nsec")
+@click.argument("destination_address")
+@click.argument("amount_sats", type=int)
+@click.option("--fee-rate", default=2.0, show_default=True, type=float, help="Target fee rate in sats/vbyte.")
+@click.option("--change-address", default=None, help="Optional Taproot change address. Defaults to the source p2tr address.")
+@click.option("--api-base", default="https://blockstream.info/api", show_default=True, help="Esplora-compatible API base URL.")
+@click.option("--broadcast", is_flag=True, help="Broadcast the signed transaction. Defaults to dry-run output only.")
+def send_bitcoin(
+    nsec: str,
+    destination_address: str,
+    amount_sats: int,
+    fee_rate: float,
+    change_address: str | None,
+    api_base: str,
+    broadcast: bool,
+) -> None:
+    """Create and optionally broadcast a Taproot p2tr transaction from an nsec-controlled wallet."""
+    result = create_p2tr_send_result(
+        nsec,
+        destination_address,
+        amount_sats,
+        fee_rate,
+        api_base=api_base,
+        change_address=change_address,
+    )
+    wallet = result["wallet"]
+    click.echo(f"npub:                {wallet['npub']}")
+    click.echo(f"source_p2tr:         {result['source_address']}")
+    click.echo(f"destination_address: {result['destination_address']}")
+    click.echo(f"amount_sats:         {result['amount_sats']}")
+    click.echo(f"fee_rate:            {result['fee_rate']}")
+    click.echo(f"fee_sats:            {result['fee_sats']}")
+    click.echo(f"change_sats:         {result['change_sats']}")
+    click.echo(f"change_policy:       {result['change_policy']}")
+    click.echo(f"destination_dust_threshold: {result['destination_dust_threshold']}")
+    click.echo(f"change_dust_threshold:      {result['change_dust_threshold']}")
+    if result['change_address']:
+        click.echo(f"change_address:      {result['change_address']}")
+    click.echo(f"input_count:         {result['input_count']}")
+    click.echo(f"output_count:        {result['output_count']}")
+    click.echo(f"vsize:               {result['vsize']}")
+    click.echo(f"weight:              {result['weight']}")
+    click.echo(f"total_in_sats:       {result['total_in_sats']}")
+    click.echo(f"api_base:            {result['api_base']}")
+    click.echo(f"txid:                {result['txid']}")
+    click.echo(f"tx_hex:              {result['tx_hex']}")
+
+    if broadcast:
+        txid = broadcast_blockstream_transaction(result['tx_hex'], api_base=result['api_base'])
+        click.echo(f"broadcast_txid:      {txid}")
+    else:
+        click.echo("broadcast:           no (dry run)")
 
 
 @click.command("validate")

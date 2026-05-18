@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from urllib import error, parse, request
 
 import bech32
+from btclib.ecc import ssa
+from btclib.script import sig_hash
+from btclib.script.script_pub_key import ScriptPubKey
+from btclib.script.witness import Witness
+from btclib.tx import OutPoint, Tx, TxIn, TxOut
 import click
 import secp256k1
 from monstr.encrypt import Keys
@@ -239,3 +245,244 @@ def derive_bitcoin_material_with_balance(
         wallet["balance"] = None
         wallet["balance_error"] = str(exc)
     return wallet
+
+
+DEFAULT_DUST_THRESHOLD_SATS = 546
+DUST_THRESHOLD_BY_TYPE = {
+    "p2tr": 330,
+    "p2wpkh": 294,
+    "p2pkh": 546,
+    "p2sh": 540,
+}
+
+
+
+
+def dust_threshold_for_script_pub_key(script_pub_key: ScriptPubKey) -> int:
+    return DUST_THRESHOLD_BY_TYPE.get(script_pub_key.type, DEFAULT_DUST_THRESHOLD_SATS)
+
+def fetch_blockstream_address_utxos(
+    address: str,
+    api_base: str = "https://blockstream.info/api",
+    timeout: float = 5.0,
+) -> list[dict[str, object]]:
+    url = f"{api_base.rstrip('/')}/address/{parse.quote(address)}/utxo"
+    req = request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "openetr/0.1",
+        },
+    )
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        raise click.ClickException(
+            f"Blockstream UTXO lookup failed for {address}: HTTP {exc.code}"
+        ) from exc
+    except error.URLError as exc:
+        raise click.ClickException(
+            f"Blockstream UTXO lookup failed for {address}: {exc.reason}"
+        ) from exc
+    except TimeoutError as exc:
+        raise click.ClickException(
+            f"Blockstream UTXO lookup timed out for {address}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(
+            f"Blockstream UTXO lookup returned invalid JSON for {address}"
+        ) from exc
+
+    if not isinstance(payload, list):
+        raise click.ClickException(f"Blockstream UTXO lookup returned an unexpected payload for {address}")
+
+    utxos: list[dict[str, object]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        status = item.get("status") or {}
+        utxos.append({
+            "txid": str(item["txid"]),
+            "vout": int(item["vout"]),
+            "value": int(item["value"]),
+            "confirmed": bool(status.get("confirmed")),
+            "block_height": int(status.get("block_height", 0) or 0),
+        })
+    return utxos
+
+
+def _estimate_signed_p2tr_vsize(input_count: int, output_script_pub_keys: list[ScriptPubKey]) -> int:
+    vin = [
+        TxIn(
+            prev_out=OutPoint(bytes.fromhex("11" * 32), index, check_validity=False),
+            sequence=0xFFFFFFFD,
+            script_witness=Witness([b"\x00" * 64]),
+            check_validity=False,
+        )
+        for index in range(input_count)
+    ]
+    vout = [TxOut(1000, script_pub_key, check_validity=False) for script_pub_key in output_script_pub_keys]
+    tx = Tx(vin=vin, vout=vout, check_validity=False)
+    return tx.vsize
+
+
+def _select_utxos_for_amount(
+    utxos: list[dict[str, object]],
+    amount_sats: int,
+    fee_rate: float,
+    change_script_pub_key: ScriptPubKey,
+    destination_script_pub_key: ScriptPubKey,
+) -> tuple[list[dict[str, object]], int, int, str]:
+    if amount_sats <= 0:
+        raise click.ClickException("amount_sats must be greater than zero")
+    if fee_rate <= 0:
+        raise click.ClickException("fee_rate must be greater than zero")
+
+    ordered_utxos = sorted(utxos, key=lambda u: (not bool(u["confirmed"]), int(u["value"])))
+    selected: list[dict[str, object]] = []
+    total_in = 0
+    for utxo in ordered_utxos:
+        selected.append(utxo)
+        total_in += int(utxo["value"])
+
+        fee_with_change = math.ceil(
+            _estimate_signed_p2tr_vsize(len(selected), [destination_script_pub_key, change_script_pub_key]) * fee_rate
+        )
+        change_amount = total_in - amount_sats - fee_with_change
+        change_dust_threshold = dust_threshold_for_script_pub_key(change_script_pub_key)
+        if change_amount >= change_dust_threshold:
+            return selected, change_amount, fee_with_change, "change_output"
+
+        fee_no_change = math.ceil(_estimate_signed_p2tr_vsize(len(selected), [destination_script_pub_key]) * fee_rate)
+        if total_in >= amount_sats + fee_no_change:
+            return selected, 0, fee_no_change, "folded_dust_into_fee"
+
+    raise click.ClickException("insufficient funds for the requested amount and fee rate")
+
+
+def build_signed_p2tr_transaction(
+    taproot_private_key_hex: str,
+    source_address: str,
+    utxos: list[dict[str, object]],
+    destination_address: str,
+    amount_sats: int,
+    fee_rate: float,
+    change_address: str | None = None,
+) -> dict[str, object]:
+    if not utxos:
+        raise click.ClickException(f"no UTXOs are available to spend from {source_address}")
+
+    source_spk = ScriptPubKey.from_address(source_address)
+    destination_spk = ScriptPubKey.from_address(destination_address)
+    change_spk = ScriptPubKey.from_address(change_address or source_address)
+
+    destination_dust_threshold = dust_threshold_for_script_pub_key(destination_spk)
+    if amount_sats < destination_dust_threshold:
+        raise click.ClickException(
+            f"destination amount {amount_sats} sats is dust for {destination_spk.type}; minimum supported amount is {destination_dust_threshold} sats"
+        )
+
+    selected_utxos, change_amount, fee_sats, change_policy = _select_utxos_for_amount(
+        utxos, amount_sats, fee_rate, change_spk, destination_spk
+    )
+
+    vin = [
+        TxIn(
+            prev_out=OutPoint(bytes.fromhex(str(utxo["txid"])), int(utxo["vout"]), check_validity=False),
+            sequence=0xFFFFFFFD,
+            check_validity=False,
+        )
+        for utxo in selected_utxos
+    ]
+    vout = [TxOut(amount_sats, destination_spk, check_validity=False)]
+    if change_amount:
+        vout.append(TxOut(change_amount, change_spk, check_validity=False))
+
+    tx = Tx(vin=vin, vout=vout, check_validity=False)
+    prevouts = [TxOut(int(utxo["value"]), source_spk, check_validity=False) for utxo in selected_utxos]
+
+    for index, _ in enumerate(selected_utxos):
+        sighash = sig_hash.taproot(tx, index, prevouts, 0, 0, b"", b"")
+        sig = ssa.sign_(sighash, int(taproot_private_key_hex, 16)).serialize()
+        tx.vin[index].script_witness = Witness([sig])
+
+    tx_hex = tx.serialize(include_witness=True, check_validity=False).hex()
+    total_in = sum(int(utxo["value"]) for utxo in selected_utxos)
+    return {
+        "tx_hex": tx_hex,
+        "txid": tx.id.hex(),
+        "vsize": tx.vsize,
+        "weight": tx.weight,
+        "fee_sats": fee_sats,
+        "fee_rate": fee_rate,
+        "amount_sats": amount_sats,
+        "change_sats": change_amount,
+        "source_address": source_address,
+        "destination_address": destination_address,
+        "change_address": (change_address or source_address) if change_amount else "",
+        "change_policy": change_policy,
+        "destination_dust_threshold": destination_dust_threshold,
+        "change_dust_threshold": dust_threshold_for_script_pub_key(change_spk),
+        "selected_utxos": selected_utxos,
+        "input_count": len(selected_utxos),
+        "output_count": len(vout),
+        "total_in_sats": total_in,
+    }
+
+
+def broadcast_blockstream_transaction(
+    tx_hex: str,
+    api_base: str = "https://blockstream.info/api",
+    timeout: float = 10.0,
+) -> str:
+    url = f"{api_base.rstrip('/')}/tx"
+    req = request.Request(
+        url,
+        data=tx_hex.encode("utf-8"),
+        headers={
+            "Content-Type": "text/plain",
+            "Accept": "text/plain",
+            "User-Agent": "openetr/0.1",
+        },
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            return response.read().decode("utf-8").strip()
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace").strip()
+        raise click.ClickException(
+            f"Blockstream broadcast failed: HTTP {exc.code}{': ' + detail if detail else ''}"
+        ) from exc
+    except error.URLError as exc:
+        raise click.ClickException(f"Blockstream broadcast failed: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise click.ClickException("Blockstream broadcast timed out") from exc
+
+
+def create_p2tr_send_result(
+    nostr_key: str,
+    destination_address: str,
+    amount_sats: int,
+    fee_rate: float,
+    api_base: str = "https://blockstream.info/api",
+    change_address: str | None = None,
+    timeout: float = 5.0,
+) -> dict[str, object]:
+    wallet = derive_bitcoin_material_from_nostr_key(nostr_key)
+    if not wallet["taproot_private_key_hex"]:
+        raise click.ClickException("nsec input is required to sign and spend a Taproot wallet")
+    utxos = fetch_blockstream_address_utxos(wallet["p2tr"], api_base=api_base, timeout=timeout)
+    tx_result = build_signed_p2tr_transaction(
+        wallet["taproot_private_key_hex"],
+        wallet["p2tr"],
+        utxos,
+        destination_address,
+        amount_sats,
+        fee_rate,
+        change_address=change_address,
+    )
+    tx_result["wallet"] = wallet
+    tx_result["api_base"] = api_base.rstrip('/')
+    return tx_result
