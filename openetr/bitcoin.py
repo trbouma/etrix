@@ -327,6 +327,16 @@ def _estimate_signed_p2tr_vsize(input_count: int, output_script_pub_keys: list[S
     return tx.vsize
 
 
+
+
+def validate_non_dust_tx_outputs(outputs: list[tuple[str, TxOut]]) -> None:
+    for label, tx_out in outputs:
+        threshold = dust_threshold_for_script_pub_key(tx_out.script_pub_key)
+        if tx_out.value < threshold:
+            raise click.ClickException(
+                f"{label} output is dust for {tx_out.script_pub_key.type}: {tx_out.value} sats < {threshold} sats"
+            )
+
 def _select_utxos_for_amount(
     utxos: list[dict[str, object]],
     amount_sats: int,
@@ -401,6 +411,11 @@ def build_signed_p2tr_transaction(
 
     tx = Tx(vin=vin, vout=vout, check_validity=False)
     prevouts = [TxOut(int(utxo["value"]), source_spk, check_validity=False) for utxo in selected_utxos]
+
+    labeled_outputs = [("destination", tx.vout[0])]
+    if change_amount:
+        labeled_outputs.append(("change", tx.vout[1]))
+    validate_non_dust_tx_outputs(labeled_outputs)
 
     for index, _ in enumerate(selected_utxos):
         sighash = sig_hash.taproot(tx, index, prevouts, 0, 0, b"", b"")

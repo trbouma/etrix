@@ -392,6 +392,79 @@
         <div class="actions">
           <button type="button" onclick="document.getElementById('wallet-seed-dialog').showModal()">Reveal Taproot Import Material</button>
         </div>
+
+        <div class="notice info" style="margin-top: 1rem;">
+          Use the spend flow below to create a signed Taproot transaction preview first. Broadcasting is a separate confirmation step so you can review the amount, fee, and raw transaction before sending funds.
+        </div>
+
+        <h3 style="margin-top: 1.4rem;">Spend Bitcoin</h3>
+        <form action="/profiles/bitcoin/send-preview" method="post">
+          <div class="grid">
+            <label class="full">
+              Destination Address
+              <input type="text" name="destination_address" value="{{ spend_form.destination_address }}" placeholder="bc1p..." required>
+            </label>
+            <label>
+              Amount (sats)
+              <input type="text" name="amount_sats" value="{{ spend_form.amount_sats }}" placeholder="50000" required>
+            </label>
+            <label>
+              Fee Rate (sats/vbyte)
+              <input type="text" name="fee_rate" value="{{ spend_form.fee_rate }}" placeholder="2.0" required>
+            </label>
+            <label class="full">
+              Change Address (optional)
+              <input type="text" name="change_address" value="{{ spend_form.change_address }}" placeholder="Leave blank to send change back to this wallet">
+            </label>
+          </div>
+          <div class="actions" style="margin-top: 1rem;">
+            <button type="submit">Preview Signed Transaction</button>
+          </div>
+        </form>
+
+        {% if spend_preview %}
+        <section class="panel" style="margin-top: 1rem; margin-bottom: 0;">
+          <h3>Signed Transaction Preview</h3>
+          <div class="kv">
+            <div>Source P2TR</div><div class="mono">{{ spend_preview.source_address }}</div>
+            <div>Destination</div><div class="mono">{{ spend_preview.destination_address }}</div>
+            <div>Amount</div><div>{{ spend_preview.amount_sats }} sats</div>
+            <div>Fee Rate</div><div>{{ spend_preview.fee_rate }} sats/vbyte</div>
+            <div>Fee</div><div>{{ spend_preview.fee_sats }} sats</div>
+            <div>Change</div><div>{{ spend_preview.change_sats }} sats</div>
+            <div>Change Policy</div><div>{{ spend_preview.change_policy }}</div>
+            <div>Inputs</div><div>{{ spend_preview.input_count }}</div>
+            <div>Outputs</div><div>{{ spend_preview.output_count }}</div>
+            <div>Virtual Size</div><div>{{ spend_preview.vsize }} vbytes</div>
+            <div>Destination Dust Threshold</div><div>{{ spend_preview.destination_dust_threshold }} sats</div>
+            <div>Change Dust Threshold</div><div>{{ spend_preview.change_dust_threshold }} sats</div>
+            <div>TXID</div><div class="mono">{{ spend_preview.txid }}</div>
+          </div>
+          <label style="margin-top: 1rem; display: grid;">
+            Signed Transaction Hex
+            <textarea readonly>{{ spend_preview.tx_hex }}</textarea>
+          </label>
+          <form action="/profiles/bitcoin/send-broadcast" method="post" style="margin-top: 1rem;">
+            <input type="hidden" name="destination_address" value="{{ spend_form.destination_address }}">
+            <input type="hidden" name="amount_sats" value="{{ spend_form.amount_sats }}">
+            <input type="hidden" name="fee_rate" value="{{ spend_form.fee_rate }}">
+            <input type="hidden" name="change_address" value="{{ spend_form.change_address }}">
+            <input type="hidden" name="tx_hex" value="{{ spend_preview.tx_hex }}">
+            <input type="hidden" name="txid" value="{{ spend_preview.txid }}">
+            <div class="actions">
+              <button type="submit">Broadcast Signed Transaction</button>
+            </div>
+          </form>
+        </section>
+        {% endif %}
+
+        {% if spend_broadcast %}
+        <div class="notice success" style="margin-top: 1rem;">
+          <strong>Broadcast complete.</strong>
+          Submitted TXID:
+          <span class="mono">{{ spend_broadcast.broadcast_txid }}</span>
+        </div>
+        {% endif %}
       </section>
 
       {% if publish_result %}

@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from monstr.encrypt import Keys
 from starlette.staticfiles import StaticFiles
 
-from openetr.bitcoin import derive_bitcoin_wallet_material, fetch_blockstream_wallet_balance_sats
+from openetr.bitcoin import broadcast_blockstream_transaction, create_p2tr_send_result, derive_bitcoin_wallet_material, fetch_blockstream_wallet_balance_sats
 from app.encrypted_session import EncryptedSessionMiddleware
 from openetr.config import DEFAULT_LIMIT, DEFAULT_PROFILE_NAME, DEFAULT_QUERY_TIMEOUT, DEFAULT_RELAYS, _async_load_profile_record, _async_load_profile_secret, _async_load_profiles_index, load_user_config, packaged_defaults, reset_runtime_bootstrap_overrides, set_runtime_bootstrap_overrides
 from openetr.guards import evaluate_issue_etr_guard
@@ -85,6 +85,59 @@ def short_id(value: str | None, head: int = 12, tail: int = 8) -> str:
 
 
 templates.env.filters["short_id"] = short_id
+
+
+def default_spend_form() -> dict[str, str]:
+    return {
+        "destination_address": "",
+        "amount_sats": "",
+        "fee_rate": "2.0",
+        "change_address": "",
+    }
+
+
+async def render_profile_edit_response(
+    request: Request,
+    identity: dict[str, Any],
+    relays: str,
+    profile_name: str,
+    profile_fields: dict[str, str],
+    current_profile: list[tuple[str, str]],
+    *,
+    bitcoin_wallet: dict[str, Any] | None = None,
+    error_message: str | None = None,
+    success_message: str | None = None,
+    publish_result: dict[str, Any] | None = None,
+    spend_form: dict[str, str] | None = None,
+    spend_preview: dict[str, Any] | None = None,
+    spend_broadcast: dict[str, Any] | None = None,
+    status_code: int = 200,
+):
+    if bitcoin_wallet is None:
+        bitcoin_wallet = await build_bitcoin_wallet_context(identity)
+    return templates.TemplateResponse(
+        request,
+        "profile_edit.html",
+        {
+            "app_title": APP_TITLE,
+            "site_url": SITE_URL,
+            "git_commit": GIT_COMMIT,
+            "identity": identity,
+            "available_profiles": await get_available_profiles(identity),
+            "relays": relays,
+            "profile_name": profile_name,
+            "profile_fields": profile_fields,
+            "current_profile": current_profile,
+            "bitcoin_wallet": bitcoin_wallet,
+            "error_message": error_message,
+            "success_message": success_message,
+            "publish_result": publish_result,
+            "spend_form": spend_form or default_spend_form(),
+            "spend_preview": spend_preview,
+            "spend_broadcast": spend_broadcast,
+        },
+        status_code=status_code,
+    )
 
 
 async def build_bitcoin_wallet_context(identity: dict[str, Any]) -> dict[str, Any]:
@@ -711,24 +764,14 @@ async def edit_profile_page(
             ssl_disable_verify=False,
         ) or {}
     bitcoin_wallet = await build_bitcoin_wallet_context(identity)
-    return templates.TemplateResponse(
+    return await render_profile_edit_response(
         request,
-        "profile_edit.html",
-        {
-            "app_title": APP_TITLE,
-            "site_url": SITE_URL,
-            "git_commit": GIT_COMMIT,
-            "identity": identity,
-            "available_profiles": await get_available_profiles(identity),
-            "relays": relays,
-            "profile_name": identity["profile"],
-            "profile_fields": profile_form_values(current_profile),
-            "current_profile": compact_profile(current_profile),
-            "bitcoin_wallet": bitcoin_wallet,
-            "error_message": None,
-            "success_message": None,
-            "publish_result": None,
-        },
+        identity,
+        relays,
+        identity["profile"],
+        profile_form_values(current_profile),
+        compact_profile(current_profile),
+        bitcoin_wallet=bitcoin_wallet,
     )
 
 
@@ -777,25 +820,15 @@ async def edit_profile_submit(
     try:
         validated_relays = await validate_relays(relays, timeout=DEFAULT_QUERY_TIMEOUT)
     except click.ClickException as exc:
-        return templates.TemplateResponse(
+        return await render_profile_edit_response(
             request,
-            "profile_edit.html",
-            {
-                "app_title": APP_TITLE,
-            "site_url": SITE_URL,
-            "git_commit": GIT_COMMIT,
-            "identity": identity,
-            "available_profiles": await get_available_profiles(identity),
-            "relays": relays,
-            "profile_name": identity["profile"],
-            "profile_fields": field_values,
-            "current_profile": [],
-            "bitcoin_wallet": await build_bitcoin_wallet_context(identity),
-            "error_message": str(exc),
-            "success_message": None,
-            "publish_result": None,
-        },
-        status_code=400,
+            identity,
+            relays,
+            identity["profile"],
+            field_values,
+            [],
+            error_message=str(exc),
+            status_code=400,
         )
 
     try:
@@ -815,45 +848,159 @@ async def edit_profile_submit(
             timeout=DEFAULT_QUERY_TIMEOUT,
             ssl_disable_verify=False,
         ) or {}
-        return templates.TemplateResponse(
+        return await render_profile_edit_response(
             request,
-            "profile_edit.html",
-            {
-                "app_title": APP_TITLE,
-                "site_url": SITE_URL,
-                "git_commit": GIT_COMMIT,
-                "identity": identity,
-                "available_profiles": await get_available_profiles(identity),
-                "relays": validated_relays,
-                "profile_name": identity["profile"],
-                "profile_fields": field_values,
-                "current_profile": compact_profile(current_profile),
-                "bitcoin_wallet": await build_bitcoin_wallet_context(identity),
-                "error_message": str(exc),
-                "success_message": None,
-                "publish_result": None,
-            },
+            identity,
+            validated_relays,
+            identity["profile"],
+            field_values,
+            compact_profile(current_profile),
+            error_message=str(exc),
             status_code=400,
         )
 
     latest_profile = publish_result["latest_content"] or publish_result["published_content"]
-    return templates.TemplateResponse(
+    return await render_profile_edit_response(
         request,
-        "profile_edit.html",
-        {
-            "app_title": APP_TITLE,
-            "site_url": SITE_URL,
-            "identity": identity,
-            "available_profiles": await get_available_profiles(identity),
-            "relays": validated_relays,
-            "profile_name": identity["profile"],
-            "profile_fields": profile_form_values(latest_profile),
-            "current_profile": compact_profile(latest_profile),
-            "bitcoin_wallet": await build_bitcoin_wallet_context(identity),
-            "error_message": None,
-            "success_message": "Published updated social profile.",
-            "publish_result": publish_result,
-        },
+        identity,
+        validated_relays,
+        identity["profile"],
+        profile_form_values(latest_profile),
+        compact_profile(latest_profile),
+        success_message="Published updated social profile.",
+        publish_result=publish_result,
+    )
+
+
+@app.post("/profiles/bitcoin/send-preview")
+async def bitcoin_send_preview(
+    request: Request,
+    destination_address: str = Form(""),
+    amount_sats: str = Form(""),
+    fee_rate: str = Form("2.0"),
+    change_address: str = Form(""),
+    identity: dict[str, Any] = Depends(get_session_identity),
+):
+    if not identity.get("logged_in"):
+        template_context = await get_default_template_context(identity)
+        template_context["error_message"] = "You must log in with an nsec before spending Bitcoin."
+        return templates.TemplateResponse(request, "index.html", template_context, status_code=400)
+
+    if not identity.get("profile"):
+        template_context = await get_default_template_context(identity)
+        template_context["error_message"] = "Select a profile before spending Bitcoin."
+        return templates.TemplateResponse(request, "index.html", template_context, status_code=400)
+
+    spend_form = {
+        "destination_address": destination_address.strip(),
+        "amount_sats": amount_sats.strip(),
+        "fee_rate": fee_rate.strip() or "2.0",
+        "change_address": change_address.strip(),
+    }
+
+    with session_bootstrap(identity):
+        relays = str((await relay_profile_config(identity["profile"])).get("relays") or DEFAULT_RELAYS)
+        current_profile = await fetch_profile(
+            relays=relays,
+            pubkey_hex=identity["pubkey_hex"],
+            timeout=DEFAULT_QUERY_TIMEOUT,
+            ssl_disable_verify=False,
+        ) or {}
+
+    try:
+        amount_value = int(spend_form["amount_sats"])
+    except ValueError:
+        return await render_profile_edit_response(
+            request, identity, relays, identity["profile"], profile_form_values(current_profile), compact_profile(current_profile),
+            error_message="Amount must be an integer number of sats.", spend_form=spend_form, status_code=400,
+        )
+
+    try:
+        fee_rate_value = float(spend_form["fee_rate"])
+    except ValueError:
+        return await render_profile_edit_response(
+            request, identity, relays, identity["profile"], profile_form_values(current_profile), compact_profile(current_profile),
+            error_message="Fee rate must be a number in sats/vbyte.", spend_form=spend_form, status_code=400,
+        )
+
+    try:
+        spend_preview = await asyncio.to_thread(
+            create_p2tr_send_result,
+            identity["nsec"],
+            spend_form["destination_address"],
+            amount_value,
+            fee_rate_value,
+            BLOCKSTREAM_API_BASE,
+            spend_form["change_address"] or None,
+            5.0,
+        )
+    except click.ClickException as exc:
+        return await render_profile_edit_response(
+            request, identity, relays, identity["profile"], profile_form_values(current_profile), compact_profile(current_profile),
+            error_message=str(exc), spend_form=spend_form, status_code=400,
+        )
+
+    return await render_profile_edit_response(
+        request, identity, relays, identity["profile"], profile_form_values(current_profile), compact_profile(current_profile),
+        success_message="Signed Taproot transaction preview created. Review it carefully before broadcasting.",
+        spend_form=spend_form, spend_preview=spend_preview,
+    )
+
+
+@app.post("/profiles/bitcoin/send-broadcast")
+async def bitcoin_send_broadcast(
+    request: Request,
+    destination_address: str = Form(""),
+    amount_sats: str = Form(""),
+    fee_rate: str = Form("2.0"),
+    change_address: str = Form(""),
+    tx_hex: str = Form(""),
+    txid: str = Form(""),
+    identity: dict[str, Any] = Depends(get_session_identity),
+):
+    if not identity.get("logged_in"):
+        template_context = await get_default_template_context(identity)
+        template_context["error_message"] = "You must log in with an nsec before spending Bitcoin."
+        return templates.TemplateResponse(request, "index.html", template_context, status_code=400)
+
+    if not identity.get("profile"):
+        template_context = await get_default_template_context(identity)
+        template_context["error_message"] = "Select a profile before spending Bitcoin."
+        return templates.TemplateResponse(request, "index.html", template_context, status_code=400)
+
+    spend_form = {
+        "destination_address": destination_address.strip(),
+        "amount_sats": amount_sats.strip(),
+        "fee_rate": fee_rate.strip() or "2.0",
+        "change_address": change_address.strip(),
+    }
+
+    with session_bootstrap(identity):
+        relays = str((await relay_profile_config(identity["profile"])).get("relays") or DEFAULT_RELAYS)
+        current_profile = await fetch_profile(
+            relays=relays,
+            pubkey_hex=identity["pubkey_hex"],
+            timeout=DEFAULT_QUERY_TIMEOUT,
+            ssl_disable_verify=False,
+        ) or {}
+
+    try:
+        broadcast_txid = await asyncio.to_thread(broadcast_blockstream_transaction, tx_hex, BLOCKSTREAM_API_BASE, 10.0)
+    except click.ClickException as exc:
+        spend_preview = {"tx_hex": tx_hex, "txid": txid, "destination_address": spend_form["destination_address"], "amount_sats": spend_form["amount_sats"], "fee_rate": spend_form["fee_rate"], "change_address": spend_form["change_address"]}
+        return await render_profile_edit_response(
+            request, identity, relays, identity["profile"], profile_form_values(current_profile), compact_profile(current_profile),
+            error_message=str(exc), spend_form=spend_form, spend_preview=spend_preview, status_code=400,
+        )
+
+    spend_broadcast = {
+        "broadcast_txid": broadcast_txid,
+        "txid": txid,
+    }
+    return await render_profile_edit_response(
+        request, identity, relays, identity["profile"], profile_form_values(current_profile), compact_profile(current_profile),
+        success_message="Taproot transaction broadcast submitted successfully.",
+        spend_form=spend_form, spend_broadcast=spend_broadcast,
     )
 
 
