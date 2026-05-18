@@ -1,3 +1,14 @@
+{% macro qr_address(label, address) -%}
+<span class="qr-address" data-address="{{ address }}" tabindex="0">
+  <span class="mono address-value">{{ address }}</span>
+  <span class="qr-popover">
+    <div class="qr-label">{{ label }}</div>
+    <div class="qr-canvas"></div>
+    <div class="mono">{{ address }}</div>
+  </span>
+</span>
+{%- endmacro %}
+
 {% if error_message %}
 <div class="notice error">{{ error_message }}</div>
 {% endif %}
@@ -31,7 +42,7 @@
     <div>Input</div><div class="mono">{{ balance_result.input_value }}</div>
     <div>Input Kind</div><div>{{ balance_result.input_kind }}</div>
     <div>npub</div><div class="mono">{{ balance_result.npub }}</div>
-    <div>P2TR</div><div class="mono">{{ balance_result.p2tr }}</div>
+    <div>P2TR</div><div>{{ qr_address('Taproot P2TR', balance_result.p2tr) }}</div>
     <div>Internal Key</div><div class="mono">{{ balance_result.internal_public_key_hex }}</div>
     <div>Taproot Output Key</div><div class="mono">{{ balance_result.taproot_output_key_hex }}</div>
     <div>Taproot Tweak</div><div class="mono">{{ balance_result.taproot_tweak_hex }}</div>

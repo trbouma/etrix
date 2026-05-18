@@ -102,6 +102,51 @@
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         word-break: break-all;
       }
+      .qr-address {
+        position: relative;
+        display: inline-block;
+        cursor: pointer;
+      }
+      .qr-address .address-value {
+        text-decoration: underline dotted;
+        text-underline-offset: 0.18rem;
+      }
+      .qr-popover {
+        position: absolute;
+        left: 0;
+        top: calc(100% + 0.6rem);
+        display: none;
+        z-index: 20;
+        min-width: 12rem;
+        padding: 0.8rem;
+        border: 1px solid var(--border);
+        border-radius: 0.9rem;
+        background: rgba(255, 250, 244, 0.98);
+        box-shadow: 0 18px 40px rgba(71, 44, 17, 0.16);
+      }
+      .qr-address:hover .qr-popover,
+      .qr-address:focus-within .qr-popover,
+      .qr-address.open .qr-popover {
+        display: block;
+      }
+      .qr-canvas {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 0.55rem;
+      }
+      .qr-canvas img,
+      .qr-canvas canvas {
+        width: 144px;
+        height: 144px;
+      }
+      .qr-label {
+        margin: 0 0 0.35rem;
+        color: var(--accent);
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
       button {
         width: fit-content;
         border: 0;
@@ -144,6 +189,11 @@
         .kv {
           grid-template-columns: 1fr;
         }
+        .qr-popover {
+          left: 50%;
+          transform: translateX(-50%);
+          width: min(16rem, calc(100vw - 3rem));
+        }
       }
     </style>
   </head>
@@ -162,5 +212,51 @@
       {% include "bitcoin_balance_fragment.html" %}
     </main>
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+      function renderAddressQrs(scope) {
+        (scope || document).querySelectorAll('.qr-address').forEach((container) => {
+          const canvas = container.querySelector('.qr-canvas');
+          if (!canvas || canvas.dataset.rendered === 'yes' || typeof QRCode === 'undefined') {
+            return;
+          }
+          const address = container.dataset.address;
+          if (!address) {
+            return;
+          }
+          new QRCode(canvas, {
+            text: address,
+            width: 144,
+            height: 144,
+            correctLevel: QRCode.CorrectLevel.M,
+          });
+          canvas.dataset.rendered = 'yes';
+        });
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        renderAddressQrs(document);
+      });
+
+      document.body.addEventListener('click', (event) => {
+        const container = event.target.closest('.qr-address');
+        if (container) {
+          const insidePopover = event.target.closest('.qr-popover');
+          if (!insidePopover) {
+            container.classList.toggle('open');
+          }
+          return;
+        }
+        document.querySelectorAll('.qr-address.open').forEach((item) => {
+          item.classList.remove('open');
+        });
+      });
+
+      document.body.addEventListener('htmx:afterSwap', (event) => {
+        if (event.target && event.target.id === 'bitcoin-balance-shell') {
+          renderAddressQrs(event.target);
+        }
+      });
+    </script>
   </body>
 </html>
