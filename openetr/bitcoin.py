@@ -15,7 +15,7 @@ import click
 import secp256k1
 from monstr.encrypt import Keys
 
-from openetr.helpers import resolve_keys
+from openetr.helpers import format_pubkey, normalize_nip05_identifier, resolve_author, resolve_keys
 
 SECP256K1_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 BECH32M_CONST = 0x2BC830A3
@@ -116,8 +116,27 @@ def taproot_material_from_internal_key(internal_key_xonly: bytes) -> dict[str, s
     }
 
 
+def normalize_nostr_key_input(nostr_key: str) -> tuple[str, str]:
+    candidate = nostr_key.strip()
+    if not candidate:
+        raise click.ClickException("nostr key input cannot be empty")
+
+    if candidate.startswith("nsec"):
+        return candidate, "nsec"
+
+    if candidate.startswith("npub"):
+        return candidate, "npub"
+
+    nip05_candidate = normalize_nip05_identifier(candidate)
+    if "@" in nip05_candidate:
+        return format_pubkey(resolve_author(nip05_candidate)), "nip05"
+
+    raise click.ClickException("input must be a valid nsec, npub, or NIP-05 identifier")
+
+
 def derive_bitcoin_material_from_nostr_key(nostr_key: str) -> dict[str, str]:
-    keys = resolve_keys(nostr_key) if nostr_key.startswith("nsec") else Keys(pub_k=nostr_key)
+    normalized_input, input_kind = normalize_nostr_key_input(nostr_key)
+    keys = resolve_keys(normalized_input) if input_kind == "nsec" else Keys(pub_k=normalized_input)
     privkey_hex = keys.private_key_hex()
     warning = ""
     normalized = False
@@ -150,6 +169,8 @@ def derive_bitcoin_material_from_nostr_key(nostr_key: str) -> dict[str, str]:
     mnemonic = private_key_bytes_to_mnemonic(bytes.fromhex(internal_privkey_hex)) if internal_privkey_hex else None
     npub = keys.public_key_bech32()
     return {
+        "input_value": nostr_key,
+        "input_kind": input_kind,
         "npub": npub,
         "private_key_hex": internal_privkey_hex,
         "taproot_private_key_hex": taproot_private_key_hex,
@@ -245,6 +266,25 @@ def derive_bitcoin_material_with_balance(
         wallet["balance"] = None
         wallet["balance_error"] = str(exc)
     return wallet
+
+
+def derive_p2tr_balance_for_nostr_input(
+    nostr_key: str,
+    api_base: str = "https://blockstream.info/api",
+    timeout: float = 5.0,
+) -> dict[str, object]:
+    wallet = derive_bitcoin_material_from_nostr_key(nostr_key)
+    balance = fetch_blockstream_wallet_balance_sats(wallet, api_base=api_base, timeout=timeout)
+    return {
+        "input_value": nostr_key,
+        "input_kind": wallet["input_kind"],
+        "npub": wallet["npub"],
+        "p2tr": wallet["p2tr"],
+        "internal_public_key_hex": wallet["internal_public_key_hex"],
+        "taproot_output_key_hex": wallet["taproot_output_key_hex"],
+        "taproot_tweak_hex": wallet["taproot_tweak_hex"],
+        "balance": balance,
+    }
 
 
 DEFAULT_DUST_THRESHOLD_SATS = 546

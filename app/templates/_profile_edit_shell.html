@@ -1,0 +1,265 @@
+{% macro qr_address(label, address) -%}
+<span class="qr-address" data-address="{{ address }}" tabindex="0">
+  <span class="mono address-value">{{ address }}</span>
+  <span class="qr-popover">
+    <div class="qr-label">{{ label }}</div>
+    <div class="qr-canvas"></div>
+    <div class="mono">{{ address }}</div>
+  </span>
+</span>
+{%- endmacro %}
+
+{% if error_message %}
+<div class="notice error">{{ error_message }}</div>
+{% endif %}
+{% if success_message %}
+<div class="notice success">{{ success_message }}</div>
+{% endif %}
+<div class="notice info">
+  This profile editor is a web adapter over shared <code>openetr</code> profile-publish services.
+  The intended architecture is one core implementation reused across the web app, human CLI, agent CLI, and agent API.
+</div>
+
+<section class="panel">
+  <p class="eyebrow">OpenETR</p>
+  <h1>Update Profile</h1>
+  <p><strong>Selected profile:</strong> <code>{{ profile_name }}</code></p>
+  <p><strong>Signer:</strong> <code title="{{ identity.npub }}">{{ identity.npub | short_id }}</code></p>
+  <p><strong>Relays:</strong> <span class="mono">{{ relays }}</span></p>
+  <p>Blank fields are removed from the merged profile when you publish. Enable replace mode to publish only the fields shown in this form.</p>
+  <p>The design note for this multi-modality approach lives in <code>docs/specs/MULTI_MODALITY_ARCHITECTURE_NOTE.md</code>.</p>
+</section>
+
+<section class="panel">
+  <form action="/profiles/edit" method="post" hx-post="/profiles/edit" hx-target="#profile-edit-shell" hx-swap="outerHTML">
+    <input type="hidden" name="relays" value="{{ relays }}">
+    <div class="grid">
+      <label>
+        Name
+        <input type="text" name="name" value="{{ profile_fields.name }}">
+      </label>
+      <label>
+        Display Name
+        <input type="text" name="display_name" value="{{ profile_fields.display_name }}">
+      </label>
+      <label class="full">
+        About
+        <textarea name="about">{{ profile_fields.about }}</textarea>
+      </label>
+      <label class="full">
+        Address
+        <input type="text" name="address" value="{{ profile_fields.address }}">
+      </label>
+      <label>
+        Picture URL
+        <input type="text" name="picture" value="{{ profile_fields.picture }}">
+      </label>
+      <label>
+        Banner URL
+        <input type="text" name="banner" value="{{ profile_fields.banner }}">
+      </label>
+      <label>
+        Website
+        <input type="text" name="website" value="{{ profile_fields.website }}">
+      </label>
+      <label>
+        NIP-05
+        <input type="text" name="nip05" value="{{ profile_fields.nip05 }}">
+      </label>
+      <label>
+        LUD-16
+        <input type="text" name="lud16" value="{{ profile_fields.lud16 }}">
+      </label>
+      <label>
+        LUD-06
+        <input type="text" name="lud06" value="{{ profile_fields.lud06 }}">
+      </label>
+      <label>
+        LEI
+        <input type="text" name="lei" value="{{ profile_fields.lei }}">
+      </label>
+      <label class="full">
+        <input type="checkbox" name="replace" value="true">
+        Replace the entire profile instead of merging with the current kind-0 event
+      </label>
+    </div>
+    <div class="actions">
+      <button type="submit">Publish Profile Update</button>
+    </div>
+  </form>
+  <form action="/" method="get">
+    <button type="submit">Home</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Current Profile</h2>
+  {% if current_profile %}
+  <div class="kv">
+    {% for field, value in current_profile %}
+    <div>{{ field }}</div><div{% if field in ["picture", "banner", "website"] %} class="mono"{% endif %}>{{ value }}</div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p>No kind-0 social profile was found for this signer on the selected relays.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h2>Bitcoin Wallet</h2>
+  <p>
+    The selected signer <code>nsec</code> is used as the Taproot internal key for a single-key Bitcoin wallet.
+    This pane derives the corresponding canonical <code>p2tr</code> address and output key for that identity.
+  </p>
+  <div class="kv">
+    <div>npub</div><div class="mono">{{ identity.npub }}</div>
+    <div>P2TR</div><div>{{ qr_address('Taproot P2TR', bitcoin_wallet.p2tr) }}</div>
+    <div>Internal Key</div><div class="mono">{{ bitcoin_wallet.internal_public_key_hex }}</div>
+    <div>Taproot Output Key</div><div class="mono">{{ bitcoin_wallet.taproot_output_key_hex }}</div>
+    <div>Taproot Tweak</div><div class="mono">{{ bitcoin_wallet.taproot_tweak_hex }}</div>
+    {% if bitcoin_wallet.balance %}
+    <div>Total Balance</div><div>{{ bitcoin_wallet.balance.total_sats }} sats</div>
+    <div>Confirmed</div><div>{{ bitcoin_wallet.balance.confirmed_sats }} sats</div>
+    <div>Mempool</div><div>{{ bitcoin_wallet.balance.mempool_sats }} sats</div>
+    <div>Taproot Address</div><div class="mono">{{ bitcoin_wallet.balance.taproot.address }}</div>
+    <div>Balance Source</div><div class="mono">{{ bitcoin_wallet.balance.api_base }}</div>
+    {% endif %}
+  </div>
+  {% if bitcoin_wallet.balance_error %}
+  <div class="notice info" style="margin-top: 1rem;">Bitcoin balance unavailable: {{ bitcoin_wallet.balance_error }}</div>
+  {% endif %}
+  <div class="notice warning" style="margin-top: 1rem;">
+    The Taproot WIF gives direct spending control over the Taproot wallet shown above. Keep it offline and private. The mnemonic shown in the reveal dialog is not the recommended wallet recovery format for this Taproot flow, because many wallet apps will interpret it as an HD seed and derive a different wallet.
+  </div>
+  <div class="notice info" style="margin-top: 1rem;">
+    To spend funds, import the revealed <code>taproot_wif</code> into a Bitcoin wallet of your choice that supports Taproot single-address imports. Before sending or spending meaningful funds, confirm that the wallet shows the same <code>p2tr</code> address displayed on this page.
+  </div>
+  <div class="actions">
+    <button type="button" onclick="document.getElementById('wallet-seed-dialog').showModal()">Reveal Taproot Import Material</button>
+  </div>
+
+  <div class="notice info" style="margin-top: 1rem;">
+    Use the spend flow below to create a signed Taproot transaction preview first. Broadcasting is a separate confirmation step so you can review the amount, fee, and raw transaction before sending funds.
+  </div>
+
+  <h3 style="margin-top: 1.4rem;">Spend Bitcoin</h3>
+  <form action="/profiles/bitcoin/send-preview" method="post" hx-post="/profiles/bitcoin/send-preview" hx-target="#profile-edit-shell" hx-swap="outerHTML">
+    <div class="grid">
+      <label class="full">
+        Destination Address
+        <input type="text" name="destination_address" value="{{ spend_form.destination_address }}" placeholder="bc1p..." required>
+      </label>
+      <label>
+        Amount (sats)
+        <input type="text" name="amount_sats" value="{{ spend_form.amount_sats }}" placeholder="50000" required>
+      </label>
+      <label>
+        Fee Rate (sats/vbyte)
+        <input type="text" name="fee_rate" value="{{ spend_form.fee_rate }}" placeholder="2.0" required>
+      </label>
+      <label class="full">
+        Change Address (optional)
+        <input type="text" name="change_address" value="{{ spend_form.change_address }}" placeholder="Leave blank to send change back to this wallet">
+      </label>
+    </div>
+    <div class="actions" style="margin-top: 1rem;">
+      <button type="submit">Preview Signed Transaction</button>
+    </div>
+  </form>
+
+  {% if spend_preview %}
+  <section class="panel" style="margin-top: 1rem; margin-bottom: 0;">
+    <h3>Signed Transaction Preview</h3>
+    <div class="kv">
+      <div>Source P2TR</div><div class="mono">{{ spend_preview.source_address }}</div>
+      <div>Destination</div><div class="mono">{{ spend_preview.destination_address }}</div>
+      <div>Amount</div><div>{{ spend_preview.amount_sats }} sats</div>
+      <div>Fee Rate</div><div>{{ spend_preview.fee_rate }} sats/vbyte</div>
+      <div>Fee</div><div>{{ spend_preview.fee_sats }} sats</div>
+      <div>Change</div><div>{{ spend_preview.change_sats }} sats</div>
+      <div>Change Policy</div><div>{{ spend_preview.change_policy }}</div>
+      <div>Inputs</div><div>{{ spend_preview.input_count }}</div>
+      <div>Outputs</div><div>{{ spend_preview.output_count }}</div>
+      <div>Virtual Size</div><div>{{ spend_preview.vsize }} vbytes</div>
+      <div>Destination Dust Threshold</div><div>{{ spend_preview.destination_dust_threshold }} sats</div>
+      <div>Change Dust Threshold</div><div>{{ spend_preview.change_dust_threshold }} sats</div>
+      <div>TXID</div><div class="mono">{{ spend_preview.txid }}</div>
+    </div>
+    <label style="margin-top: 1rem; display: grid;">
+      Signed Transaction Hex
+      <textarea readonly>{{ spend_preview.tx_hex }}</textarea>
+    </label>
+    <form action="/profiles/bitcoin/send-broadcast" method="post" hx-post="/profiles/bitcoin/send-broadcast" hx-target="#profile-edit-shell" hx-swap="outerHTML" style="margin-top: 1rem;">
+      <input type="hidden" name="destination_address" value="{{ spend_form.destination_address }}">
+      <input type="hidden" name="amount_sats" value="{{ spend_form.amount_sats }}">
+      <input type="hidden" name="fee_rate" value="{{ spend_form.fee_rate }}">
+      <input type="hidden" name="change_address" value="{{ spend_form.change_address }}">
+      <input type="hidden" name="tx_hex" value="{{ spend_preview.tx_hex }}">
+      <input type="hidden" name="txid" value="{{ spend_preview.txid }}">
+      <div class="actions">
+        <button type="submit">Broadcast Signed Transaction</button>
+      </div>
+    </form>
+  </section>
+  {% endif %}
+
+  {% if spend_broadcast %}
+  <div class="notice success" style="margin-top: 1rem;">
+    <strong>Broadcast complete.</strong>
+    Submitted TXID:
+    <span class="mono">{{ spend_broadcast.broadcast_txid }}</span>
+  </div>
+  {% endif %}
+</section>
+
+{% if publish_result %}
+<section class="panel">
+  <h2>Publish Result</h2>
+  <div class="kv">
+    <div>Event ID</div><div class="mono">{{ publish_result.event_id }}</div>
+    <div>Signer</div><div class="mono" title="{{ publish_result.signer_npub }}">{{ publish_result.signer_npub | short_id }}</div>
+    <div>Latest Event ID</div><div class="mono">{{ publish_result.latest_event_id }}</div>
+    <div>Exact Match</div><div>{{ publish_result.exact_match }}</div>
+    <div>Updated Fields</div><div>{{ publish_result.updated_fields|join(", ") if publish_result.updated_fields else "none" }}</div>
+    <div>Removed Fields</div><div>{{ publish_result.removed_fields|join(", ") if publish_result.removed_fields else "none" }}</div>
+  </div>
+  {% if publish_result.ok_results %}
+  <h3>Relay OK Results</h3>
+  <ul>
+    {% for item in publish_result.ok_results %}
+    <li><span class="mono">{{ item.event_id }}</span> success={{ item.success }} message={{ item.message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endif %}
+
+<dialog id="wallet-seed-dialog">
+  <div class="dialog-body">
+    <h2>Reveal Taproot Import Material</h2>
+    <div class="notice warning">
+      Only reveal this material if you intend to import it into a wallet you trust. Anyone with the Taproot WIF or the raw signer secret can spend funds controlled by this Taproot wallet.
+    </div>
+    <p>
+      The recommended import value for this single-address Taproot wallet is the <code>taproot_wif</code> shown below. The mnemonic is only a raw-key encoding and external wallets may interpret it as an HD seed, which can produce a different wallet and a different address. Always confirm that the imported wallet shows the same <code>p2tr</code> address displayed on this page before sending or spending meaningful funds.
+    </p>
+    <div class="dialog-actions">
+      <button type="button" onclick="document.getElementById('wallet-seed-phrase').classList.add('visible')">I Understand, Reveal Material</button>
+      <button type="button" onclick="document.getElementById('wallet-seed-dialog').close()">Close</button>
+    </div>
+    <div id="wallet-seed-phrase" class="seed-phrase">
+      <div>
+        <strong>Seed Phrase</strong>
+        <div class="mono" style="margin-top: 0.45rem;">{{ bitcoin_wallet.mnemonic }}</div>
+      </div>
+      <div style="margin-top: 1rem;">
+        <strong>Signer nsec</strong>
+        <div class="mono" style="margin-top: 0.45rem;">{{ identity.nsec }}</div>
+      </div>
+      <div style="margin-top: 1rem;">
+        <strong>Taproot WIF</strong>
+        <div class="mono" style="margin-top: 0.45rem;">{{ bitcoin_wallet.taproot_wif }}</div>
+      </div>
+    </div>
+  </div>
+</dialog>

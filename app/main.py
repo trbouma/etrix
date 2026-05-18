@@ -87,6 +87,10 @@ def short_id(value: str | None, head: int = 12, tail: int = 8) -> str:
 templates.env.filters["short_id"] = short_id
 
 
+def is_htmx_request(request: Request) -> bool:
+    return request.headers.get("HX-Request", "").lower() == "true"
+
+
 def default_spend_form() -> dict[str, str]:
     return {
         "destination_address": "",
@@ -115,9 +119,10 @@ async def render_profile_edit_response(
 ):
     if bitcoin_wallet is None:
         bitcoin_wallet = await build_bitcoin_wallet_context(identity)
+    template_name = "profile_edit_fragment.html" if is_htmx_request(request) else "profile_edit.html"
     return templates.TemplateResponse(
         request,
-        "profile_edit.html",
+        template_name,
         {
             "app_title": APP_TITLE,
             "site_url": SITE_URL,

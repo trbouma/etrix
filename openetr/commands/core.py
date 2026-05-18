@@ -11,7 +11,7 @@ from monstr.encrypt import Keys
 from monstr.event.event import Event
 import yaml
 
-from openetr.bitcoin import create_p2tr_send_result, derive_bitcoin_material_with_balance, broadcast_blockstream_transaction
+from openetr.bitcoin import broadcast_blockstream_transaction, create_p2tr_send_result, derive_bitcoin_material_with_balance, derive_p2tr_balance_for_nostr_input
 from openetr.config import (
     ALIASES_KEY,
     CONFIG_AS_USER_KEY,
@@ -351,9 +351,10 @@ def get_object_id(digest_file: str, bech32: bool) -> None:
 @click.argument("nostr_key")
 @click.option("--show-mnemonic", is_flag=True, help="Also print the raw-key mnemonic encoding for reference; this is not the recommended Taproot wallet import format.")
 def get_bitcoin_info(nostr_key: str, show_mnemonic: bool) -> None:
-    """Return Bitcoin addresses derived from an nsec or npub."""
+    """Return Taproot wallet information derived from an nsec, npub, or NIP-05 identifier."""
     wallet = derive_bitcoin_material_with_balance(nostr_key)
-    click.echo(f"nostr_key:       {nostr_key}")
+    click.echo(f"nostr_key:       {wallet['input_value']}")
+    click.echo(f"input_kind:      {wallet['input_kind']}")
     click.echo(f"npub:            {wallet['npub']}")
     if wallet["private_key_hex"]:
         click.echo(f"internal_private_key_hex: {wallet['private_key_hex']}")
@@ -383,6 +384,23 @@ def get_bitcoin_info(nostr_key: str, show_mnemonic: bool) -> None:
         )
     elif show_mnemonic:
         click.echo("mnemonic:        unavailable for public-only npub input")
+
+
+@click.command("check-balance")
+@click.argument("nostr_key")
+@click.option("--api-base", default="https://blockstream.info/api", show_default=True, help="Esplora-compatible API base URL.")
+def check_balance(nostr_key: str, api_base: str) -> None:
+    """Resolve an nsec, npub, or NIP-05 identifier to a Taproot wallet and show its balance."""
+    result = derive_p2tr_balance_for_nostr_input(nostr_key, api_base=api_base)
+    balance = result["balance"]
+    click.echo(f"nostr_key:       {result['input_value']}")
+    click.echo(f"input_kind:      {result['input_kind']}")
+    click.echo(f"npub:            {result['npub']}")
+    click.echo(f"p2tr:            {result['p2tr']}")
+    click.echo(f"balance_sats:    {balance['total_sats']}")
+    click.echo(f"confirmed_sats:  {balance['confirmed_sats']}")
+    click.echo(f"mempool_sats:    {balance['mempool_sats']}")
+    click.echo(f"balance_source:  {balance['api_base']}")
 
 
 @click.command("send-bitcoin")

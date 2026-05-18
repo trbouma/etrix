@@ -90,6 +90,17 @@ def normalize_alias(alias: str) -> str:
     return normalized
 
 
+def normalize_nip05_identifier(value: str) -> str:
+    normalized = value.strip().lower()
+    if not normalized:
+        raise click.ClickException("NIP-05 identifier must not be empty")
+    if "@" in normalized:
+        return normalized
+    if "." in normalized and all(char not in normalized for char in ("/", ":", " ")):
+        return f"_@{normalized}"
+    return normalized
+
+
 def resolve_alias_value(alias: str) -> str | None:
     normalized = normalize_alias(alias)
     aliases = get_aliases()
@@ -364,17 +375,19 @@ def parse_authors(authors: str | None) -> list[str] | None:
 
 
 def resolve_author(author: str) -> str:
-    alias_value = resolve_alias_value(author)
-    if alias_value is not None:
-        author = alias_value
+    normalized_author = normalize_nip05_identifier(author)
+    author = normalized_author
+
+    if "@" not in normalized_author:
+        alias_value = resolve_alias_value(author)
+        if alias_value is not None:
+            author = alias_value
 
     if author.startswith("npub"):
         author_hex = Keys.bech32_to_hex(author)
         if author_hex is None:
             raise click.ClickException(f"invalid npub author key: {author}")
         return author_hex
-
-    normalized_author = author.strip().lower()
 
     if "@" not in normalized_author:
         raise click.ClickException("author must be supplied as an alias, npub bech32, or NIP-05 format")
