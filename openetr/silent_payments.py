@@ -17,6 +17,8 @@ from openetr.helpers import format_pubkey, normalize_nip05_identifier, resolve_a
 SECP256K1_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
 BECH32M_CONST = 0x2BC830A3
 SCAN_OUTPUT_SEARCH_LIMIT = 4096
+SILENT_PAYMENT_SCAN_TAG = "nostr-sp/scan"
+SILENT_PAYMENT_SPEND_TAG = "nostr-sp/spend"
 
 
 def sha256(data: bytes) -> bytes:
@@ -127,8 +129,8 @@ def derive_silent_payment_material(nostr_key: str, hrp: str = "sp") -> dict[str,
             "without the matching nsec."
         )
 
-    scan_tweak = _derive_tweak_scalar(base_pubkey, "OpenETR/SilentPayments/v1/scan")
-    spend_tweak = _derive_tweak_scalar(base_pubkey, "OpenETR/SilentPayments/v1/spend")
+    scan_tweak = _derive_tweak_scalar(base_pubkey, SILENT_PAYMENT_SCAN_TAG)
+    spend_tweak = _derive_tweak_scalar(base_pubkey, SILENT_PAYMENT_SPEND_TAG)
     scan_pubkey = _tweak_pubkey(base_pubkey, scan_tweak)
     spend_pubkey = _tweak_pubkey(base_pubkey, spend_tweak)
 

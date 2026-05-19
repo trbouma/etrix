@@ -68,8 +68,8 @@ OpenETR should derive Silent Payments keys deterministically from the existing p
 Recommended approach:
 
 1. Start from the normalized OpenETR profile private key material.
-2. Derive a Silent Payments master seed with a domain-separated tagged hash.
-3. From that master seed, derive:
+2. Derive domain-separated Silent Payments tweaks from the normalized base public key.
+3. Use those tweaks to derive:
    - `scan_priv_key`
    - `spend_priv_key`
 4. Publish or display:
@@ -79,9 +79,10 @@ Recommended approach:
 
 Recommended domain tags:
 
-- `OpenETR/SilentPayments/v1/master`
-- `OpenETR/SilentPayments/v1/scan`
-- `OpenETR/SilentPayments/v1/spend`
+- `nostr-sp/scan`
+- `nostr-sp/spend`
+
+OpenETR standardizes these tags as part of the deterministic Silent Payments derivation scheme. A change to these tags changes the derived `scan` key, `spend` key, and final `sp1q...` address for the same `nsec`, so they must be treated as part of the compatibility contract.
 
 This keeps Silent Payments key material:
 
