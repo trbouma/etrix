@@ -114,6 +114,7 @@
   <div class="kv">
     <div>npub</div><div class="mono">{{ identity.npub }}</div>
     <div>P2TR</div><div>{{ qr_address('Taproot P2TR', bitcoin_wallet.p2tr) }}</div>
+    <div>Silent Payment</div><div>{{ qr_address('Silent Payment Address', bitcoin_wallet.silent_payment.silent_payment_address) }}</div>
     <div>Internal Key</div><div class="mono">{{ bitcoin_wallet.internal_public_key_hex }}</div>
     <div>Taproot Output Key</div><div class="mono">{{ bitcoin_wallet.taproot_output_key_hex }}</div>
     <div>Taproot Tweak</div><div class="mono">{{ bitcoin_wallet.taproot_tweak_hex }}</div>
@@ -130,6 +131,9 @@
   {% endif %}
   <div class="notice warning" style="margin-top: 1rem;">
     The Taproot WIF gives direct spending control over the Taproot wallet shown above. Keep it offline and private. The mnemonic shown in the reveal dialog is not the recommended wallet recovery format for this Taproot flow, because many wallet apps will interpret it as an HD seed and derive a different wallet.
+  </div>
+  <div class="notice info" style="margin-top: 1rem;">
+    The Silent Payment address shown above is available for early inspection and sharing, but Silent Payments support in OpenETR is still under implementation. Address derivation is present; scanning, receipt detection, and sending support are not yet complete.
   </div>
   <div class="notice info" style="margin-top: 1rem;">
     To spend funds, import the revealed <code>taproot_wif</code> into a Bitcoin wallet of your choice that supports Taproot single-address imports. Before sending or spending meaningful funds, confirm that the wallet shows the same <code>p2tr</code> address displayed on this page.

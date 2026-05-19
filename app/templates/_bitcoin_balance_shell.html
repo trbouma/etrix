@@ -57,6 +57,18 @@
   </div>
 </section>
 
+{% if silent_payment_result %}
+<section class="panel">
+  <h2>Silent Payments</h2>
+  <div class="kv">
+    <div>Silent Payment</div><div>{{ qr_address('Silent Payment Address', silent_payment_result.silent_payment_address) }}</div>
+  </div>
+  <div class="notice info" style="margin-top: 1rem;">
+    This Silent Payment address is available for early inspection and sharing, but Silent Payments support in OpenETR is still under implementation. Address derivation is present; scanning, receipt detection, and sending are not yet complete.
+  </div>
+</section>
+{% endif %}
+
 <section class="panel">
   <h2>Share</h2>
   <p>Copy a link to this exact balance view, including the current Nostr input and transaction count.</p>

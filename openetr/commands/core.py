@@ -12,6 +12,7 @@ from monstr.event.event import Event
 import yaml
 
 from openetr.bitcoin import broadcast_blockstream_transaction, create_p2tr_send_result, create_p2tr_sweep_result, derive_bitcoin_material_with_balance, derive_p2tr_balance_for_nostr_input, derive_recent_transactions_for_nostr_input
+from openetr.silent_payments import create_silent_payment_sweep_result, derive_silent_payment_material, inspect_silent_payment_transaction, scan_silent_payment_receipts
 from openetr.config import (
     ALIASES_KEY,
     CONFIG_AS_USER_KEY,
@@ -62,7 +63,6 @@ from openetr.helpers import (
     validate_lei,
     validate_npub,
 )
-
 MLETR_TRIVIA_PATH = files("openetr").joinpath("mletr_trivia.yaml")
 
 
@@ -386,6 +386,109 @@ def get_bitcoin_info(nostr_key: str, show_mnemonic: bool) -> None:
         click.echo("mnemonic:        unavailable for public-only npub input")
 
 
+@click.command("get-silent-payment-address")
+@click.argument("nostr_key")
+def get_silent_payment_address(nostr_key: str) -> None:
+    """Return a deterministic BIP-352 Silent Payments address derived from an nsec, npub, or NIP-05 identifier."""
+    result = derive_silent_payment_material(nostr_key)
+    click.echo(f"nostr_key:            {result['input_value']}")
+    click.echo(f"input_kind:           {result['input_kind']}")
+    click.echo(f"npub:                 {result['npub']}")
+    click.echo(f"base_public_key_hex:  {result['base_public_key_hex']}")
+    click.echo(f"scan_public_key_hex:  {result['scan_public_key_hex']}")
+    click.echo(f"spend_public_key_hex: {result['spend_public_key_hex']}")
+    click.echo(f"silent_payment:       {result['silent_payment_address']}")
+    if result["scan_private_key_hex"]:
+        click.echo(f"scan_private_key_hex:  {result['scan_private_key_hex']}")
+    if result["spend_private_key_hex"]:
+        click.echo(f"spend_private_key_hex: {result['spend_private_key_hex']}")
+    if result["warning"]:
+        click.echo(f"warning:              {result['warning']}")
+
+
+@click.command("check-silent-payment-receipts")
+@click.argument("nsec")
+@click.option("--txid", "txids", multiple=True, help="Transaction ID to scan for Silent Payments receipts. Repeat to scan multiple transactions.")
+@click.option("--blockheight", default=None, type=int, help="Starting block height to scan. Defaults to the current tip when no txids are supplied.")
+@click.option("--block-count", default=1, show_default=True, type=int, help="Number of blocks to scan, descending from blockheight or the current tip.")
+@click.option("--api-base", default="https://blockstream.info/api", show_default=True, help="Esplora-compatible API base URL.")
+def check_silent_payment_receipts(
+    nsec: str,
+    txids: tuple[str, ...],
+    blockheight: int | None,
+    block_count: int,
+    api_base: str,
+) -> None:
+    """Scan explicit txids or recent block transactions for outputs that belong to the Silent Payments identity derived from an nsec."""
+    result = scan_silent_payment_receipts(
+        nsec,
+        list(txids),
+        api_base=api_base,
+        start_blockheight=blockheight,
+        block_count=block_count,
+    )
+    click.echo(f"nostr_key:            {result['input_value']}")
+    click.echo(f"npub:                 {result['npub']}")
+    click.echo(f"silent_payment:       {result['silent_payment_address']}")
+    click.echo(f"scan_source:          {result['api_base']}")
+    click.echo(f"scan_mode:            {result['scan_mode']}")
+    if result["block_summaries"]:
+        click.echo(f"scanned_blocks:       {len(result['block_summaries'])}")
+        for index, block in enumerate(result["block_summaries"], start=1):
+            click.echo(f"block_{index}_height:   {block['height']}")
+            click.echo(f"block_{index}_hash:     {block['block_hash']}")
+            click.echo(f"block_{index}_tx_count: {block['tx_count']}")
+    click.echo(f"scanned_transactions: {len(result['transactions'])}")
+    for index, tx in enumerate(result["transactions"], start=1):
+        click.echo(f"tx_{index}_txid:             {tx['txid']}")
+        click.echo(f"tx_{index}_input_pubkeys:    {tx['input_pubkey_count']}")
+        if tx["warning"]:
+            click.echo(f"tx_{index}_warning:          {tx['warning']}")
+        click.echo(f"tx_{index}_matched_outputs:  {len(tx['matched_outputs'])}")
+        for match_index, match in enumerate(tx["matched_outputs"], start=1):
+            click.echo(f"tx_{index}_match_{match_index}_vout:        {match['vout']}")
+            click.echo(f"tx_{index}_match_{match_index}_value:       {match['value']}")
+            click.echo(f"tx_{index}_match_{match_index}_address:     {match['scriptpubkey_address']}")
+            click.echo(f"tx_{index}_match_{match_index}_pubkey_hex:  {match['output_pubkey_hex']}")
+            click.echo(f"tx_{index}_match_{match_index}_tweak_hex:   {match['priv_key_tweak_hex']}")
+            click.echo(f"tx_{index}_match_{match_index}_shared_secret_index: {match['shared_secret_index']}")
+
+
+@click.command("inspect-silent-payment-tx")
+@click.argument("txid")
+@click.option("--api-base", default="https://blockstream.info/api", show_default=True, help="Esplora-compatible API base URL.")
+def inspect_silent_payment_tx(txid: str, api_base: str) -> None:
+    """Inspect a transaction for Silent Payments input/output eligibility details."""
+    result = inspect_silent_payment_transaction(txid, api_base=api_base)
+    click.echo(f"txid:                  {result['txid']}")
+    click.echo(f"scan_source:           {result['api_base']}")
+    status = result["status"] if isinstance(result["status"], dict) else {}
+    click.echo(f"confirmed:             {bool(status.get('confirmed', False))}")
+    if status.get("block_height") is not None:
+        click.echo(f"block_height:          {status['block_height']}")
+    click.echo(f"input_count:           {result['input_count']}")
+    click.echo(f"eligible_input_pubkeys:{result['eligible_input_pubkeys']}")
+    click.echo(f"taproot_output_count:  {result['taproot_output_count']}")
+    for input_result in result["inputs"]:
+        prefix = f"input_{input_result['index']}"
+        click.echo(f"{prefix}_txid:         {input_result['txid']}")
+        click.echo(f"{prefix}_vout:         {input_result['vout']}")
+        click.echo(f"{prefix}_script_type:  {input_result['prevout_script_type']}")
+        click.echo(f"{prefix}_witness_items:{input_result['witness_items']}")
+        click.echo(f"{prefix}_scriptsig_len:{input_result['scriptsig_length']}")
+        click.echo(f"{prefix}_pubkey_ok:    {input_result['pubkey_extracted']}")
+        if input_result["pubkey_hex"]:
+            click.echo(f"{prefix}_pubkey_hex:   {input_result['pubkey_hex']}")
+        if input_result["notes"]:
+            click.echo(f"{prefix}_notes:        {'; '.join(input_result['notes'])}")
+    for output_result in result["outputs"]:
+        prefix = f"output_{output_result['index']}"
+        click.echo(f"{prefix}_value:        {output_result['value']}")
+        click.echo(f"{prefix}_script_type:  {output_result['script_type']}")
+        if output_result["scriptpubkey_address"]:
+            click.echo(f"{prefix}_address:      {output_result['scriptpubkey_address']}")
+
+
 @click.command("check-balance")
 @click.argument("nostr_key")
 @click.option("--api-base", default="https://blockstream.info/api", show_default=True, help="Esplora-compatible API base URL.")
@@ -528,6 +631,61 @@ def sweep(
     if broadcast:
         txid = broadcast_blockstream_transaction(result["tx_hex"], api_base=result["api_base"])
         click.echo(f"broadcast_txid:      {txid}")
+    else:
+        click.echo("broadcast:           no (dry run)")
+
+
+@click.command("sweep-silent-payment")
+@click.argument("nsec")
+@click.argument("txid")
+@click.argument("destination_address")
+@click.option("--vout", default=None, type=int, help="Matched receipt vout to sweep when the transaction contains multiple Silent Payments outputs.")
+@click.option("--fee-rate", default=2.0, show_default=True, type=float, help="Target fee rate in sats/vbyte.")
+@click.option("--api-base", default="https://blockstream.info/api", show_default=True, help="Esplora-compatible API base URL.")
+@click.option("--broadcast", is_flag=True, help="Broadcast the signed transaction. Defaults to dry-run output only.")
+def sweep_silent_payment(
+    nsec: str,
+    txid: str,
+    destination_address: str,
+    vout: int | None,
+    fee_rate: float,
+    api_base: str,
+    broadcast: bool,
+) -> None:
+    """Create and optionally broadcast a sweep of a detected Silent Payments receipt."""
+    result = create_silent_payment_sweep_result(
+        nsec,
+        txid,
+        destination_address,
+        fee_rate,
+        api_base=api_base,
+        vout=vout,
+    )
+    click.echo(f"npub:                {result['npub']}")
+    click.echo(f"silent_payment:      {result['silent_payment_address']}")
+    click.echo(f"matched_txid:        {result['matched_txid']}")
+    click.echo(f"matched_vout:        {result['matched_vout']}")
+    click.echo(f"source_p2tr:         {result['source_address']}")
+    click.echo(f"matched_value_sats:  {result['matched_value']}")
+    click.echo(f"sweep_amount_sats:   {result['amount_sats']}")
+    click.echo(f"destination_address: {result['destination_address']}")
+    click.echo(f"fee_rate:            {result['fee_rate']}")
+    click.echo(f"fee_sats:            {result['fee_sats']}")
+    click.echo(f"change_sats:         {result['change_sats']}")
+    click.echo(f"change_policy:       {result['change_policy']}")
+    click.echo(f"shared_secret_index: {result['matched_shared_secret_index']}")
+    click.echo(f"destination_dust_threshold: {result['destination_dust_threshold']}")
+    click.echo(f"input_count:         {result['input_count']}")
+    click.echo(f"output_count:        {result['output_count']}")
+    click.echo(f"vsize:               {result['vsize']}")
+    click.echo(f"weight:              {result['weight']}")
+    click.echo(f"api_base:            {result['api_base']}")
+    click.echo(f"txid:                {result['txid']}")
+    click.echo(f"tx_hex:              {result['tx_hex']}")
+
+    if broadcast:
+        broadcast_txid = broadcast_blockstream_transaction(result["tx_hex"], api_base=result["api_base"])
+        click.echo(f"broadcast_txid:      {broadcast_txid}")
     else:
         click.echo("broadcast:           no (dry run)")
 
