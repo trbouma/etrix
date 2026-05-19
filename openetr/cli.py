@@ -1,5 +1,5 @@
 import click
-from openetr.commands.core import alias_group, bootstrap, check_balance, get_bitcoin_info, get_object_id, info, init_config, migrate_config, profile_group, send_bitcoin, set_config, trivia, validate, version, whoami
+from openetr.commands.core import alias_group, bootstrap, check_balance, get_bitcoin_info, get_object_id, info, init_config, migrate_config, profile_group, recent_bitcoin_txs, send_bitcoin, set_config, sweep, trivia, validate, version, whoami
 from openetr.commands.publish import issue_etr, publish_object, publish_profile, terminate_etr, transfer_group
 from openetr.commands.query import query_etr, query_object, query_profile, verify
 from openetr.config import HOME_RELAY_KEY, ROOT_NSEC_KEY, USER_CONFIG_PATH, ensure_root_bootstrap, runtime_bootstrap_enabled
@@ -88,7 +88,9 @@ main.add_command(whoami)
 main.add_command(get_object_id)
 main.add_command(get_bitcoin_info)
 main.add_command(check_balance)
+main.add_command(recent_bitcoin_txs)
 main.add_command(send_bitcoin)
+main.add_command(sweep)
 main.add_command(validate)
 main.add_command(init_config)
 main.add_command(bootstrap)

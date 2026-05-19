@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from datetime import datetime, timezone
 from urllib import error, parse, request
 
 import bech32
@@ -253,6 +254,93 @@ def fetch_blockstream_wallet_balance_sats(
     }
 
 
+def fetch_blockstream_address_recent_transactions(
+    address: str,
+    api_base: str = "https://blockstream.info/api",
+    timeout: float = 5.0,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    url = f"{api_base.rstrip('/')}/address/{parse.quote(address)}/txs"
+    req = request.Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "openetr/0.1",
+        },
+    )
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        raise click.ClickException(
+            f"Blockstream transaction lookup failed for {address}: HTTP {exc.code}"
+        ) from exc
+    except error.URLError as exc:
+        raise click.ClickException(
+            f"Blockstream transaction lookup failed for {address}: {exc.reason}"
+        ) from exc
+    except TimeoutError as exc:
+        raise click.ClickException(
+            f"Blockstream transaction lookup timed out for {address}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise click.ClickException(
+            f"Blockstream transaction lookup returned invalid JSON for {address}"
+        ) from exc
+
+    if not isinstance(payload, list):
+        raise click.ClickException(f"Blockstream transaction lookup returned an unexpected payload for {address}")
+
+    summaries: list[dict[str, object]] = []
+    for item in payload[: max(limit, 0)]:
+        if not isinstance(item, dict):
+            continue
+        status = item.get("status") or {}
+        outputs = item.get("vout") or []
+        inputs = item.get("vin") or []
+        received_sats = 0
+        spent_sats = 0
+        for output in outputs:
+            if isinstance(output, dict) and output.get("scriptpubkey_address") == address:
+                received_sats += int(output.get("value", 0) or 0)
+        for txin in inputs:
+            prevout = txin.get("prevout") if isinstance(txin, dict) else None
+            if isinstance(prevout, dict) and prevout.get("scriptpubkey_address") == address:
+                spent_sats += int(prevout.get("value", 0) or 0)
+
+        net_sats = received_sats - spent_sats
+        if received_sats > 0 and spent_sats > 0:
+            direction = "mixed"
+        elif net_sats > 0:
+            direction = "receive"
+        elif net_sats < 0:
+            direction = "send"
+        else:
+            direction = "neutral"
+
+        block_time = status.get("block_time")
+        timestamp_iso = None
+        if block_time:
+            timestamp_iso = datetime.fromtimestamp(int(block_time), tz=timezone.utc).isoformat()
+
+        summaries.append(
+            {
+                "txid": str(item.get("txid", "")),
+                "confirmed": bool(status.get("confirmed")),
+                "block_height": int(status.get("block_height", 0) or 0),
+                "block_time": int(block_time or 0),
+                "timestamp_iso": timestamp_iso,
+                "received_sats": received_sats,
+                "spent_sats": spent_sats,
+                "net_sats": net_sats,
+                "fee_sats": int(item.get("fee", 0) or 0),
+                "direction": direction,
+            }
+        )
+
+    return summaries
+
+
 def derive_bitcoin_material_with_balance(
     nostr_key: str,
     api_base: str = "https://blockstream.info/api",
@@ -284,6 +372,29 @@ def derive_p2tr_balance_for_nostr_input(
         "taproot_output_key_hex": wallet["taproot_output_key_hex"],
         "taproot_tweak_hex": wallet["taproot_tweak_hex"],
         "balance": balance,
+    }
+
+
+def derive_recent_transactions_for_nostr_input(
+    nostr_key: str,
+    api_base: str = "https://blockstream.info/api",
+    timeout: float = 5.0,
+    limit: int = 10,
+) -> dict[str, object]:
+    wallet = derive_bitcoin_material_from_nostr_key(nostr_key)
+    recent_transactions = fetch_blockstream_address_recent_transactions(
+        wallet["p2tr"],
+        api_base=api_base,
+        timeout=timeout,
+        limit=limit,
+    )
+    return {
+        "input_value": nostr_key,
+        "input_kind": wallet["input_kind"],
+        "npub": wallet["npub"],
+        "p2tr": wallet["p2tr"],
+        "recent_transactions": recent_transactions,
+        "api_base": api_base.rstrip("/"),
     }
 
 
@@ -350,6 +461,10 @@ def fetch_blockstream_address_utxos(
             "block_height": int(status.get("block_height", 0) or 0),
         })
     return utxos
+
+
+def confirmed_utxos_only(utxos: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [utxo for utxo in utxos if bool(utxo.get("confirmed"))]
 
 
 def _estimate_signed_p2tr_vsize(input_count: int, output_script_pub_keys: list[ScriptPubKey]) -> int:
@@ -528,7 +643,11 @@ def create_p2tr_send_result(
     wallet = derive_bitcoin_material_from_nostr_key(nostr_key)
     if not wallet["taproot_private_key_hex"]:
         raise click.ClickException("nsec input is required to sign and spend a Taproot wallet")
-    utxos = fetch_blockstream_address_utxos(wallet["p2tr"], api_base=api_base, timeout=timeout)
+    utxos = confirmed_utxos_only(
+        fetch_blockstream_address_utxos(wallet["p2tr"], api_base=api_base, timeout=timeout)
+    )
+    if not utxos:
+        raise click.ClickException(f"no confirmed UTXOs are available to spend from {wallet['p2tr']}")
     tx_result = build_signed_p2tr_transaction(
         wallet["taproot_private_key_hex"],
         wallet["p2tr"],
@@ -554,9 +673,11 @@ def create_p2tr_sweep_result(
     if not wallet["taproot_private_key_hex"]:
         raise click.ClickException("nsec input is required to sign and sweep a Taproot wallet")
 
-    utxos = fetch_blockstream_address_utxos(wallet["p2tr"], api_base=api_base, timeout=timeout)
+    utxos = confirmed_utxos_only(
+        fetch_blockstream_address_utxos(wallet["p2tr"], api_base=api_base, timeout=timeout)
+    )
     if not utxos:
-        raise click.ClickException(f"no UTXOs are available to spend from {wallet['p2tr']}")
+        raise click.ClickException(f"no confirmed UTXOs are available to spend from {wallet['p2tr']}")
 
     if fee_rate <= 0:
         raise click.ClickException("fee_rate must be greater than zero")

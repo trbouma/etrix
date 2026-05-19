@@ -11,7 +11,7 @@ from monstr.encrypt import Keys
 from monstr.event.event import Event
 import yaml
 
-from openetr.bitcoin import broadcast_blockstream_transaction, create_p2tr_send_result, derive_bitcoin_material_with_balance, derive_p2tr_balance_for_nostr_input
+from openetr.bitcoin import broadcast_blockstream_transaction, create_p2tr_send_result, create_p2tr_sweep_result, derive_bitcoin_material_with_balance, derive_p2tr_balance_for_nostr_input, derive_recent_transactions_for_nostr_input
 from openetr.config import (
     ALIASES_KEY,
     CONFIG_AS_USER_KEY,
@@ -403,6 +403,31 @@ def check_balance(nostr_key: str, api_base: str) -> None:
     click.echo(f"balance_source:  {balance['api_base']}")
 
 
+@click.command("recent-bitcoin-txs")
+@click.argument("nostr_key")
+@click.option("--limit", default=20, show_default=True, type=int, help="Maximum number of recent transactions to show.")
+@click.option("--api-base", default="https://blockstream.info/api", show_default=True, help="Esplora-compatible API base URL.")
+def recent_bitcoin_txs(nostr_key: str, limit: int, api_base: str) -> None:
+    """Resolve an nsec, npub, or NIP-05 identifier and show recent Taproot wallet transactions."""
+    result = derive_recent_transactions_for_nostr_input(nostr_key, api_base=api_base, limit=limit)
+    click.echo(f"nostr_key:       {result['input_value']}")
+    click.echo(f"input_kind:      {result['input_kind']}")
+    click.echo(f"npub:            {result['npub']}")
+    click.echo(f"p2tr:            {result['p2tr']}")
+    click.echo(f"tx_source:       {result['api_base']}")
+    click.echo(f"tx_count:        {len(result['recent_transactions'])}")
+    for index, tx in enumerate(result["recent_transactions"], start=1):
+        click.echo(f"tx_{index}_txid:          {tx['txid']}")
+        click.echo(f"tx_{index}_status:        {'confirmed' if tx['confirmed'] else 'mempool'}")
+        if tx["timestamp_iso"]:
+            click.echo(f"tx_{index}_timestamp:     {tx['timestamp_iso']}")
+        click.echo(f"tx_{index}_direction:     {tx['direction']}")
+        click.echo(f"tx_{index}_received_sats: {tx['received_sats']}")
+        click.echo(f"tx_{index}_spent_sats:    {tx['spent_sats']}")
+        click.echo(f"tx_{index}_net_sats:      {tx['net_sats']}")
+        click.echo(f"tx_{index}_fee_sats:      {tx['fee_sats']}")
+
+
 @click.command("send-bitcoin")
 @click.argument("nsec")
 @click.argument("destination_address")
@@ -453,6 +478,55 @@ def send_bitcoin(
 
     if broadcast:
         txid = broadcast_blockstream_transaction(result['tx_hex'], api_base=result['api_base'])
+        click.echo(f"broadcast_txid:      {txid}")
+    else:
+        click.echo("broadcast:           no (dry run)")
+
+
+@click.command("sweep")
+@click.argument("nsec")
+@click.argument("destination_address")
+@click.option("--fee-rate", default=2.0, show_default=True, type=float, help="Target fee rate in sats/vbyte.")
+@click.option("--api-base", default="https://blockstream.info/api", show_default=True, help="Esplora-compatible API base URL.")
+@click.option("--broadcast", is_flag=True, help="Broadcast the signed transaction. Defaults to dry-run output only.")
+def sweep(
+    nsec: str,
+    destination_address: str,
+    fee_rate: float,
+    api_base: str,
+    broadcast: bool,
+) -> None:
+    """Create and optionally broadcast a full-wallet Taproot sweep from an nsec-controlled wallet."""
+    result = create_p2tr_sweep_result(
+        nsec,
+        destination_address,
+        fee_rate,
+        api_base=api_base,
+    )
+    wallet = result["wallet"]
+    confirmed_balance = derive_p2tr_balance_for_nostr_input(nsec, api_base=api_base)["balance"]["confirmed_sats"]
+    click.echo(f"npub:                {wallet['npub']}")
+    click.echo(f"source_p2tr:         {result['source_address']}")
+    click.echo(f"destination_address: {result['destination_address']}")
+    click.echo(f"confirmed_sats:      {confirmed_balance}")
+    click.echo(f"sweep_amount_sats:   {result['amount_sats']}")
+    click.echo(f"fee_rate:            {result['fee_rate']}")
+    click.echo(f"fee_sats:            {result['fee_sats']}")
+    click.echo(f"change_sats:         {result['change_sats']}")
+    click.echo(f"change_policy:       {result['change_policy']}")
+    click.echo(f"destination_dust_threshold: {result['destination_dust_threshold']}")
+    click.echo(f"change_dust_threshold:      {result['change_dust_threshold']}")
+    click.echo(f"input_count:         {result['input_count']}")
+    click.echo(f"output_count:        {result['output_count']}")
+    click.echo(f"vsize:               {result['vsize']}")
+    click.echo(f"weight:              {result['weight']}")
+    click.echo(f"total_in_sats:       {result['total_in_sats']}")
+    click.echo(f"api_base:            {result['api_base']}")
+    click.echo(f"txid:                {result['txid']}")
+    click.echo(f"tx_hex:              {result['tx_hex']}")
+
+    if broadcast:
+        txid = broadcast_blockstream_transaction(result["tx_hex"], api_base=result["api_base"])
         click.echo(f"broadcast_txid:      {txid}")
     else:
         click.echo("broadcast:           no (dry run)")

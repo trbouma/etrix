@@ -53,6 +53,34 @@
   </div>
 </section>
 
+<section class="panel">
+  <h2>Recent Transactions</h2>
+  {% if recent_transactions %}
+  <div class="kv" style="margin-bottom: 1rem;">
+    <div>Shown</div><div>{{ recent_transactions|length }}</div>
+    <div>Source</div><div class="mono">{{ balance_result.balance.api_base }}</div>
+  </div>
+  {% for tx in recent_transactions %}
+  <div class="panel" style="padding: 1rem; margin-bottom: 0.75rem;">
+    <div class="kv">
+      <div>TXID</div><div class="mono">{{ tx.txid }}</div>
+      <div>Status</div><div>{{ "confirmed" if tx.confirmed else "mempool" }}</div>
+      {% if tx.timestamp_iso %}
+      <div>Timestamp</div><div>{{ tx.timestamp_iso }}</div>
+      {% endif %}
+      <div>Direction</div><div>{{ tx.direction }}</div>
+      <div>Received</div><div>{{ tx.received_sats }} sats</div>
+      <div>Spent</div><div>{{ tx.spent_sats }} sats</div>
+      <div>Net</div><div>{{ tx.net_sats }} sats</div>
+      <div>Fee</div><div>{{ tx.fee_sats }} sats</div>
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <p>No recent transactions were found for this Taproot address.</p>
+  {% endif %}
+</section>
+
 {% if balance_result.input_kind == "nsec" %}
 <section class="panel">
   <h2>Sweep Wallet</h2>
