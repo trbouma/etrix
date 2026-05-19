@@ -214,6 +214,54 @@
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script>
+      function buildBalanceShareUrl() {
+        const shell = document.getElementById('bitcoin-balance-shell');
+        if (!shell) {
+          return new URL('/bitcoin/check-balance', window.location.origin).toString();
+        }
+        const nostrInput = shell.querySelector('input[name="nostr_key"]');
+        const transactionLimitInput = shell.querySelector('input[name="transaction_limit"]');
+        const url = new URL('/bitcoin/check-balance', window.location.origin);
+        const nostrKey = (nostrInput?.value || '').trim();
+        const transactionLimit = (transactionLimitInput?.value || '').trim();
+        if (nostrKey) {
+          url.searchParams.set('nostr_key', nostrKey);
+        }
+        if (transactionLimit) {
+          url.searchParams.set('transaction_limit', transactionLimit);
+        }
+        return url.toString();
+      }
+
+      function syncBalancePageUrl() {
+        const shell = document.getElementById('bitcoin-balance-shell');
+        if (!shell) {
+          return;
+        }
+        const nostrInput = shell.querySelector('input[name="nostr_key"]');
+        const nostrKey = (nostrInput?.value || '').trim();
+        const nextUrl = nostrKey ? buildBalanceShareUrl() : new URL('/bitcoin/check-balance', window.location.origin).toString();
+        window.history.replaceState({}, '', nextUrl);
+      }
+
+      function initializeShareLink() {
+        const button = document.getElementById('share-balance-link-button');
+        const status = document.getElementById('share-balance-link-status');
+        if (!button || !status || button.dataset.bound === 'yes') {
+          return;
+        }
+        button.dataset.bound = 'yes';
+        button.addEventListener('click', async () => {
+          const shareUrl = buildBalanceShareUrl();
+          try {
+            await navigator.clipboard.writeText(shareUrl);
+            status.textContent = 'Copied current link.';
+          } catch (error) {
+            status.textContent = shareUrl;
+          }
+        });
+      }
+
       function renderAddressQrs(scope) {
         (scope || document).querySelectorAll('.qr-address').forEach((container) => {
           const canvas = container.querySelector('.qr-canvas');
@@ -236,6 +284,8 @@
 
       document.addEventListener('DOMContentLoaded', () => {
         renderAddressQrs(document);
+        initializeShareLink();
+        syncBalancePageUrl();
       });
 
       document.body.addEventListener('click', (event) => {
@@ -255,6 +305,8 @@
       document.body.addEventListener('htmx:afterSwap', (event) => {
         if (event.target && event.target.id === 'bitcoin-balance-shell') {
           renderAddressQrs(event.target);
+          initializeShareLink();
+          syncBalancePageUrl();
         }
       });
     </script>

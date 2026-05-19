@@ -7,7 +7,7 @@ from typing import Any
 
 import bech32
 import click
-from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from monstr.encrypt import Keys
@@ -114,6 +114,50 @@ def default_sweep_form() -> dict[str, str]:
         "fee_rate": "2.0",
         "transaction_limit": "5",
     }
+
+
+def parse_transaction_limit(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise click.ClickException("Transaction count must be an integer.") from exc
+    if parsed <= 0:
+        raise click.ClickException("Transaction count must be greater than zero.")
+    return parsed
+
+
+async def resolve_balance_page_data(
+    nostr_key: str,
+    transaction_limit: str,
+) -> tuple[dict[str, str], dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    balance_form = {
+        "nostr_key": nostr_key.strip(),
+        "transaction_limit": transaction_limit.strip() or "5",
+    }
+    if not balance_form["nostr_key"]:
+        raise click.ClickException("Enter an nsec, npub, NIP-05 identifier, or a bare domain for NIP-05 lookup.")
+
+    tx_limit_value = parse_transaction_limit(balance_form["transaction_limit"])
+    balance_result = await asyncio.to_thread(
+        derive_p2tr_balance_for_nostr_input,
+        balance_form["nostr_key"],
+        BLOCKSTREAM_API_BASE,
+        5.0,
+    )
+    recent_transactions_result = await asyncio.to_thread(
+        derive_recent_transactions_for_nostr_input,
+        balance_form["nostr_key"],
+        BLOCKSTREAM_API_BASE,
+        5.0,
+        tx_limit_value,
+    )
+    sweep_form = {
+        "nostr_key": balance_form["nostr_key"],
+        "destination_address": "",
+        "fee_rate": "2.0",
+        "transaction_limit": balance_form["transaction_limit"],
+    }
+    return balance_form, sweep_form, balance_result, recent_transactions_result["recent_transactions"]
 
 
 async def render_profile_edit_response(
@@ -506,69 +550,26 @@ async def overview_page(
 @app.get("/bitcoin/check-balance")
 async def bitcoin_balance_page(
     request: Request,
+    nostr_key: str = Query(""),
+    transaction_limit: str = Query("5"),
     identity: dict[str, Any] = Depends(get_session_identity),
 ):
-    return render_bitcoin_balance_response(request, identity)
-
-
-@app.post("/bitcoin/check-balance")
-async def bitcoin_balance_submit(
-    request: Request,
-    nostr_key: str = Form(""),
-    transaction_limit: str = Form("5"),
-    identity: dict[str, Any] = Depends(get_session_identity),
-):
-    balance_form = {
-        "nostr_key": nostr_key.strip(),
-        "transaction_limit": transaction_limit.strip() or "5",
-    }
-    if not balance_form["nostr_key"]:
-        return render_bitcoin_balance_response(
-            request,
-            identity,
-            balance_form=balance_form,
-            error_message="Enter an nsec, npub, NIP-05 identifier, or a bare domain for NIP-05 lookup.",
-            status_code=400,
-        )
+    if not nostr_key.strip():
+        return render_bitcoin_balance_response(request, identity)
 
     try:
-        tx_limit_value = int(balance_form["transaction_limit"])
-    except ValueError:
-        return render_bitcoin_balance_response(
-            request,
-            identity,
-            balance_form=balance_form,
-            error_message="Transaction count must be an integer.",
-            status_code=400,
-        )
-    if tx_limit_value <= 0:
-        return render_bitcoin_balance_response(
-            request,
-            identity,
-            balance_form=balance_form,
-            error_message="Transaction count must be greater than zero.",
-            status_code=400,
-        )
-
-    try:
-        balance_result = await asyncio.to_thread(
-            derive_p2tr_balance_for_nostr_input,
-            balance_form["nostr_key"],
-            BLOCKSTREAM_API_BASE,
-            5.0,
-        )
-        recent_transactions_result = await asyncio.to_thread(
-            derive_recent_transactions_for_nostr_input,
-            balance_form["nostr_key"],
-            BLOCKSTREAM_API_BASE,
-            5.0,
-            tx_limit_value,
+        balance_form, sweep_form, balance_result, recent_transactions = await resolve_balance_page_data(
+            nostr_key,
+            transaction_limit,
         )
     except click.ClickException as exc:
         return render_bitcoin_balance_response(
             request,
             identity,
-            balance_form=balance_form,
+            balance_form={
+                "nostr_key": nostr_key.strip(),
+                "transaction_limit": transaction_limit.strip() or "5",
+            },
             error_message=str(exc),
             status_code=400,
         )
@@ -578,13 +579,43 @@ async def bitcoin_balance_submit(
         identity,
         balance_form=balance_form,
         balance_result=balance_result,
-        recent_transactions=recent_transactions_result["recent_transactions"],
-        sweep_form={
-            "nostr_key": balance_form["nostr_key"],
-            "destination_address": "",
-            "fee_rate": "2.0",
-            "transaction_limit": balance_form["transaction_limit"],
-        },
+        recent_transactions=recent_transactions,
+        sweep_form=sweep_form,
+        success_message="Resolved Taproot wallet balance.",
+    )
+
+
+@app.post("/bitcoin/check-balance")
+async def bitcoin_balance_submit(
+    request: Request,
+    nostr_key: str = Form(""),
+    transaction_limit: str = Form("5"),
+    identity: dict[str, Any] = Depends(get_session_identity),
+):
+    try:
+        balance_form, sweep_form, balance_result, recent_transactions = await resolve_balance_page_data(
+            nostr_key,
+            transaction_limit,
+        )
+    except click.ClickException as exc:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form={
+                "nostr_key": nostr_key.strip(),
+                "transaction_limit": transaction_limit.strip() or "5",
+            },
+            error_message=str(exc),
+            status_code=400,
+        )
+
+    return render_bitcoin_balance_response(
+        request,
+        identity,
+        balance_form=balance_form,
+        balance_result=balance_result,
+        recent_transactions=recent_transactions,
+        sweep_form=sweep_form,
         success_message="Resolved Taproot wallet balance.",
     )
 

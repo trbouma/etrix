@@ -58,6 +58,15 @@
 </section>
 
 <section class="panel">
+  <h2>Share</h2>
+  <p>Copy a link to this exact balance view, including the current Nostr input and transaction count.</p>
+  <div class="actions">
+    <button type="button" id="share-balance-link-button">Share this Link</button>
+    <span id="share-balance-link-status" class="mono"></span>
+  </div>
+</section>
+
+<section class="panel">
   <h2>Recent Transactions</h2>
   <form action="/bitcoin/check-balance" method="post" hx-post="/bitcoin/check-balance" hx-target="#bitcoin-balance-shell" hx-swap="outerHTML" style="margin-top: 0;">
     <input type="hidden" name="nostr_key" value="{{ balance_form.nostr_key }}">
