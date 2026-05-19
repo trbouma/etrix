@@ -103,6 +103,7 @@ def default_spend_form() -> dict[str, str]:
 def default_balance_form() -> dict[str, str]:
     return {
         "nostr_key": "",
+        "transaction_limit": "5",
     }
 
 
@@ -111,6 +112,7 @@ def default_sweep_form() -> dict[str, str]:
         "nostr_key": "",
         "destination_address": "",
         "fee_rate": "2.0",
+        "transaction_limit": "5",
     }
 
 
@@ -513,15 +515,38 @@ async def bitcoin_balance_page(
 async def bitcoin_balance_submit(
     request: Request,
     nostr_key: str = Form(""),
+    transaction_limit: str = Form("5"),
     identity: dict[str, Any] = Depends(get_session_identity),
 ):
-    balance_form = {"nostr_key": nostr_key.strip()}
+    balance_form = {
+        "nostr_key": nostr_key.strip(),
+        "transaction_limit": transaction_limit.strip() or "5",
+    }
     if not balance_form["nostr_key"]:
         return render_bitcoin_balance_response(
             request,
             identity,
             balance_form=balance_form,
             error_message="Enter an nsec, npub, NIP-05 identifier, or a bare domain for NIP-05 lookup.",
+            status_code=400,
+        )
+
+    try:
+        tx_limit_value = int(balance_form["transaction_limit"])
+    except ValueError:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            error_message="Transaction count must be an integer.",
+            status_code=400,
+        )
+    if tx_limit_value <= 0:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            error_message="Transaction count must be greater than zero.",
             status_code=400,
         )
 
@@ -537,7 +562,7 @@ async def bitcoin_balance_submit(
             balance_form["nostr_key"],
             BLOCKSTREAM_API_BASE,
             5.0,
-            20,
+            tx_limit_value,
         )
     except click.ClickException as exc:
         return render_bitcoin_balance_response(
@@ -554,7 +579,12 @@ async def bitcoin_balance_submit(
         balance_form=balance_form,
         balance_result=balance_result,
         recent_transactions=recent_transactions_result["recent_transactions"],
-        sweep_form={"nostr_key": balance_form["nostr_key"], "destination_address": "", "fee_rate": "2.0"},
+        sweep_form={
+            "nostr_key": balance_form["nostr_key"],
+            "destination_address": "",
+            "fee_rate": "2.0",
+            "transaction_limit": balance_form["transaction_limit"],
+        },
         success_message="Resolved Taproot wallet balance.",
     )
 
@@ -565,13 +595,18 @@ async def bitcoin_sweep_preview(
     nostr_key: str = Form(""),
     destination_address: str = Form(""),
     fee_rate: str = Form("2.0"),
+    transaction_limit: str = Form("5"),
     identity: dict[str, Any] = Depends(get_session_identity),
 ):
-    balance_form = {"nostr_key": nostr_key.strip()}
+    balance_form = {
+        "nostr_key": nostr_key.strip(),
+        "transaction_limit": transaction_limit.strip() or "5",
+    }
     sweep_form = {
         "nostr_key": nostr_key.strip(),
         "destination_address": destination_address.strip(),
         "fee_rate": fee_rate.strip() or "2.0",
+        "transaction_limit": transaction_limit.strip() or "5",
     }
     if not sweep_form["nostr_key"]:
         return render_bitcoin_balance_response(
@@ -580,6 +615,27 @@ async def bitcoin_sweep_preview(
             balance_form=balance_form,
             sweep_form=sweep_form,
             error_message="Enter an nsec before sweeping the wallet.",
+            status_code=400,
+        )
+
+    try:
+        tx_limit_value = int(balance_form["transaction_limit"])
+    except ValueError:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            sweep_form=sweep_form,
+            error_message="Transaction count must be an integer.",
+            status_code=400,
+        )
+    if tx_limit_value <= 0:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            sweep_form=sweep_form,
+            error_message="Transaction count must be greater than zero.",
             status_code=400,
         )
 
@@ -595,7 +651,7 @@ async def bitcoin_sweep_preview(
             sweep_form["nostr_key"],
             BLOCKSTREAM_API_BASE,
             5.0,
-            20,
+            tx_limit_value,
         )
     except click.ClickException as exc:
         return render_bitcoin_balance_response(
@@ -672,16 +728,42 @@ async def bitcoin_sweep_broadcast(
     nostr_key: str = Form(""),
     destination_address: str = Form(""),
     fee_rate: str = Form("2.0"),
+    transaction_limit: str = Form("5"),
     tx_hex: str = Form(""),
     txid: str = Form(""),
     identity: dict[str, Any] = Depends(get_session_identity),
 ):
-    balance_form = {"nostr_key": nostr_key.strip()}
+    balance_form = {
+        "nostr_key": nostr_key.strip(),
+        "transaction_limit": transaction_limit.strip() or "5",
+    }
     sweep_form = {
         "nostr_key": nostr_key.strip(),
         "destination_address": destination_address.strip(),
         "fee_rate": fee_rate.strip() or "2.0",
+        "transaction_limit": transaction_limit.strip() or "5",
     }
+
+    try:
+        tx_limit_value = int(balance_form["transaction_limit"])
+    except ValueError:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            sweep_form=sweep_form,
+            error_message="Transaction count must be an integer.",
+            status_code=400,
+        )
+    if tx_limit_value <= 0:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            sweep_form=sweep_form,
+            error_message="Transaction count must be greater than zero.",
+            status_code=400,
+        )
 
     try:
         balance_result = await asyncio.to_thread(
@@ -695,7 +777,7 @@ async def bitcoin_sweep_broadcast(
             sweep_form["nostr_key"],
             BLOCKSTREAM_API_BASE,
             5.0,
-            20,
+            tx_limit_value,
         )
     except click.ClickException as exc:
         return render_bitcoin_balance_response(

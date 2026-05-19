@@ -29,6 +29,10 @@
       Nostr Identity Input
       <input type="text" name="nostr_key" value="{{ balance_form.nostr_key }}" placeholder="nsec1..., npub1..., alice@example.com, or example.com" required>
     </label>
+    <label>
+      Recent Transaction Count
+      <input type="text" name="transaction_limit" value="{{ balance_form.transaction_limit }}" placeholder="5" required>
+    </label>
     <div class="actions">
       <button type="submit">Check Balance</button>
     </div>
@@ -55,6 +59,16 @@
 
 <section class="panel">
   <h2>Recent Transactions</h2>
+  <form action="/bitcoin/check-balance" method="post" hx-post="/bitcoin/check-balance" hx-target="#bitcoin-balance-shell" hx-swap="outerHTML" style="margin-top: 0;">
+    <input type="hidden" name="nostr_key" value="{{ balance_form.nostr_key }}">
+    <label>
+      Transaction Count
+      <input type="text" name="transaction_limit" value="{{ balance_form.transaction_limit }}" placeholder="5" required>
+    </label>
+    <div class="actions">
+      <button type="submit">Refresh Transactions</button>
+    </div>
+  </form>
   {% if recent_transactions %}
   <div class="kv" style="margin-bottom: 1rem;">
     <div>Shown</div><div>{{ recent_transactions|length }}</div>
@@ -90,6 +104,7 @@
   </p>
   <form action="/bitcoin/sweep-preview" method="post" hx-post="/bitcoin/sweep-preview" hx-target="#bitcoin-balance-shell" hx-swap="outerHTML">
     <input type="hidden" name="nostr_key" value="{{ sweep_form.nostr_key or balance_form.nostr_key }}">
+    <input type="hidden" name="transaction_limit" value="{{ sweep_form.transaction_limit or balance_form.transaction_limit }}">
     <label>
       Destination Address
       <input type="text" name="destination_address" value="{{ sweep_form.destination_address }}" placeholder="bc1p..." required>
@@ -124,6 +139,7 @@
     </label>
     <form action="/bitcoin/sweep-broadcast" method="post" hx-post="/bitcoin/sweep-broadcast" hx-target="#bitcoin-balance-shell" hx-swap="outerHTML" style="margin-top: 1rem;">
       <input type="hidden" name="nostr_key" value="{{ sweep_form.nostr_key or balance_form.nostr_key }}">
+      <input type="hidden" name="transaction_limit" value="{{ sweep_form.transaction_limit or balance_form.transaction_limit }}">
       <input type="hidden" name="destination_address" value="{{ sweep_form.destination_address }}">
       <input type="hidden" name="fee_rate" value="{{ sweep_form.fee_rate }}">
       <input type="hidden" name="tx_hex" value="{{ sweep_preview.tx_hex }}">
