@@ -541,3 +541,48 @@ def create_p2tr_send_result(
     tx_result["wallet"] = wallet
     tx_result["api_base"] = api_base.rstrip('/')
     return tx_result
+
+
+def create_p2tr_sweep_result(
+    nostr_key: str,
+    destination_address: str,
+    fee_rate: float,
+    api_base: str = "https://blockstream.info/api",
+    timeout: float = 5.0,
+) -> dict[str, object]:
+    wallet = derive_bitcoin_material_from_nostr_key(nostr_key)
+    if not wallet["taproot_private_key_hex"]:
+        raise click.ClickException("nsec input is required to sign and sweep a Taproot wallet")
+
+    utxos = fetch_blockstream_address_utxos(wallet["p2tr"], api_base=api_base, timeout=timeout)
+    if not utxos:
+        raise click.ClickException(f"no UTXOs are available to spend from {wallet['p2tr']}")
+
+    if fee_rate <= 0:
+        raise click.ClickException("fee_rate must be greater than zero")
+
+    destination_spk = ScriptPubKey.from_address(destination_address)
+    destination_dust_threshold = dust_threshold_for_script_pub_key(destination_spk)
+    total_in = sum(int(utxo["value"]) for utxo in utxos)
+    fee_sats = math.ceil(_estimate_signed_p2tr_vsize(len(utxos), [destination_spk]) * fee_rate)
+    amount_sats = total_in - fee_sats
+    if amount_sats <= 0:
+        raise click.ClickException("insufficient funds to sweep the wallet at the requested fee rate")
+    if amount_sats < destination_dust_threshold:
+        raise click.ClickException(
+            f"sweep amount {amount_sats} sats is dust for {destination_spk.type}; minimum supported amount is {destination_dust_threshold} sats"
+        )
+
+    tx_result = build_signed_p2tr_transaction(
+        wallet["taproot_private_key_hex"],
+        wallet["p2tr"],
+        utxos,
+        destination_address,
+        amount_sats,
+        fee_rate,
+        change_address=wallet["p2tr"],
+    )
+    tx_result["wallet"] = wallet
+    tx_result["api_base"] = api_base.rstrip('/')
+    tx_result["sweep"] = True
+    return tx_result

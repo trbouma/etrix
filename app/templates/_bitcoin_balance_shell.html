@@ -52,4 +52,68 @@
     <div>Balance Source</div><div class="mono">{{ balance_result.balance.api_base }}</div>
   </div>
 </section>
+
+{% if balance_result.input_kind == "nsec" %}
+<section class="panel">
+  <h2>Sweep Wallet</h2>
+  <p>
+    This uses the same Taproot signing flow as the CLI to spend the full wallet balance to a destination address.
+    The final spend amount is calculated as <code>total balance - fee</code>, and the app will show you a signed preview before broadcast.
+  </p>
+  <form action="/bitcoin/sweep-preview" method="post" hx-post="/bitcoin/sweep-preview" hx-target="#bitcoin-balance-shell" hx-swap="outerHTML">
+    <input type="hidden" name="nostr_key" value="{{ sweep_form.nostr_key or balance_form.nostr_key }}">
+    <label>
+      Destination Address
+      <input type="text" name="destination_address" value="{{ sweep_form.destination_address }}" placeholder="bc1p..." required>
+    </label>
+    <label>
+      Fee Rate (sats/vbyte)
+      <input type="text" name="fee_rate" value="{{ sweep_form.fee_rate }}" placeholder="2.0" required>
+    </label>
+    <div class="actions">
+      <button type="submit">Preview Wallet Sweep</button>
+    </div>
+  </form>
+
+  {% if sweep_preview %}
+  <section class="panel" style="margin-top: 1rem; margin-bottom: 0;">
+    <h3>Signed Sweep Preview</h3>
+    <div class="kv">
+      <div>Source P2TR</div><div class="mono">{{ sweep_preview.source_address }}</div>
+      <div>Destination</div><div class="mono">{{ sweep_preview.destination_address }}</div>
+      <div>Sweep Amount</div><div>{{ sweep_preview.amount_sats }} sats</div>
+      <div>Fee Rate</div><div>{{ sweep_preview.fee_rate }} sats/vbyte</div>
+      <div>Fee</div><div>{{ sweep_preview.fee_sats }} sats</div>
+      <div>Inputs</div><div>{{ sweep_preview.input_count }}</div>
+      <div>Outputs</div><div>{{ sweep_preview.output_count }}</div>
+      <div>Virtual Size</div><div>{{ sweep_preview.vsize }} vbytes</div>
+      <div>Total In</div><div>{{ sweep_preview.total_in_sats }} sats</div>
+      <div>TXID</div><div class="mono">{{ sweep_preview.txid }}</div>
+    </div>
+    <label style="margin-top: 1rem; display: grid;">
+      Signed Transaction Hex
+      <textarea readonly>{{ sweep_preview.tx_hex }}</textarea>
+    </label>
+    <form action="/bitcoin/sweep-broadcast" method="post" hx-post="/bitcoin/sweep-broadcast" hx-target="#bitcoin-balance-shell" hx-swap="outerHTML" style="margin-top: 1rem;">
+      <input type="hidden" name="nostr_key" value="{{ sweep_form.nostr_key or balance_form.nostr_key }}">
+      <input type="hidden" name="destination_address" value="{{ sweep_form.destination_address }}">
+      <input type="hidden" name="fee_rate" value="{{ sweep_form.fee_rate }}">
+      <input type="hidden" name="tx_hex" value="{{ sweep_preview.tx_hex }}">
+      <input type="hidden" name="txid" value="{{ sweep_preview.txid }}">
+      <div class="actions">
+        <button type="submit">Broadcast Wallet Sweep</button>
+      </div>
+    </form>
+  </section>
+  {% endif %}
+
+  {% if sweep_broadcast %}
+  <div class="notice success" style="margin-top: 1rem;">
+    <strong>Sweep broadcast complete.</strong>
+    Submitted TXID:
+    <span class="mono">{{ sweep_broadcast.broadcast_txid }}</span>
+  </div>
+  {% endif %}
+</section>
+{% endif %}
 {% endif %}

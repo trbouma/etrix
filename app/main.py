@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from monstr.encrypt import Keys
 from starlette.staticfiles import StaticFiles
 
-from openetr.bitcoin import broadcast_blockstream_transaction, create_p2tr_send_result, derive_bitcoin_wallet_material, derive_p2tr_balance_for_nostr_input, fetch_blockstream_wallet_balance_sats
+from openetr.bitcoin import broadcast_blockstream_transaction, create_p2tr_send_result, create_p2tr_sweep_result, derive_bitcoin_wallet_material, derive_p2tr_balance_for_nostr_input, fetch_blockstream_wallet_balance_sats
 from app.encrypted_session import EncryptedSessionMiddleware
 from openetr.config import DEFAULT_LIMIT, DEFAULT_PROFILE_NAME, DEFAULT_QUERY_TIMEOUT, DEFAULT_RELAYS, _async_load_profile_record, _async_load_profile_secret, _async_load_profiles_index, load_user_config, packaged_defaults, reset_runtime_bootstrap_overrides, set_runtime_bootstrap_overrides
 from openetr.guards import evaluate_issue_etr_guard
@@ -106,6 +106,14 @@ def default_balance_form() -> dict[str, str]:
     }
 
 
+def default_sweep_form() -> dict[str, str]:
+    return {
+        "nostr_key": "",
+        "destination_address": "",
+        "fee_rate": "2.0",
+    }
+
+
 async def render_profile_edit_response(
     request: Request,
     identity: dict[str, Any],
@@ -157,6 +165,9 @@ def render_bitcoin_balance_response(
     *,
     balance_form: dict[str, str] | None = None,
     balance_result: dict[str, Any] | None = None,
+    sweep_form: dict[str, str] | None = None,
+    sweep_preview: dict[str, Any] | None = None,
+    sweep_broadcast: dict[str, Any] | None = None,
     error_message: str | None = None,
     success_message: str | None = None,
     status_code: int = 200,
@@ -172,6 +183,9 @@ def render_bitcoin_balance_response(
             "identity": identity,
             "balance_form": balance_form or default_balance_form(),
             "balance_result": balance_result,
+            "sweep_form": sweep_form or default_sweep_form(),
+            "sweep_preview": sweep_preview,
+            "sweep_broadcast": sweep_broadcast,
             "error_message": error_message,
             "success_message": success_message,
         },
@@ -530,7 +544,170 @@ async def bitcoin_balance_submit(
         identity,
         balance_form=balance_form,
         balance_result=balance_result,
+        sweep_form={"nostr_key": balance_form["nostr_key"], "destination_address": "", "fee_rate": "2.0"},
         success_message="Resolved Taproot wallet balance.",
+    )
+
+
+@app.post("/bitcoin/sweep-preview")
+async def bitcoin_sweep_preview(
+    request: Request,
+    nostr_key: str = Form(""),
+    destination_address: str = Form(""),
+    fee_rate: str = Form("2.0"),
+    identity: dict[str, Any] = Depends(get_session_identity),
+):
+    balance_form = {"nostr_key": nostr_key.strip()}
+    sweep_form = {
+        "nostr_key": nostr_key.strip(),
+        "destination_address": destination_address.strip(),
+        "fee_rate": fee_rate.strip() or "2.0",
+    }
+    if not sweep_form["nostr_key"]:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            sweep_form=sweep_form,
+            error_message="Enter an nsec before sweeping the wallet.",
+            status_code=400,
+        )
+
+    try:
+        balance_result = await asyncio.to_thread(
+            derive_p2tr_balance_for_nostr_input,
+            sweep_form["nostr_key"],
+            BLOCKSTREAM_API_BASE,
+            5.0,
+        )
+    except click.ClickException as exc:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            sweep_form=sweep_form,
+            error_message=str(exc),
+            status_code=400,
+        )
+
+    if balance_result["input_kind"] != "nsec":
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            balance_result=balance_result,
+            sweep_form=sweep_form,
+            error_message="Sweep Wallet requires an nsec so the Taproot transaction can be signed.",
+            status_code=400,
+        )
+
+    try:
+        fee_rate_value = float(sweep_form["fee_rate"])
+    except ValueError:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            balance_result=balance_result,
+            sweep_form=sweep_form,
+            error_message="Fee rate must be a number in sats/vbyte.",
+            status_code=400,
+        )
+
+    try:
+        sweep_preview = await asyncio.to_thread(
+            create_p2tr_sweep_result,
+            sweep_form["nostr_key"],
+            sweep_form["destination_address"],
+            fee_rate_value,
+            BLOCKSTREAM_API_BASE,
+            5.0,
+        )
+    except click.ClickException as exc:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            balance_result=balance_result,
+            sweep_form=sweep_form,
+            error_message=str(exc),
+            status_code=400,
+        )
+
+    return render_bitcoin_balance_response(
+        request,
+        identity,
+        balance_form=balance_form,
+        balance_result=balance_result,
+        sweep_form=sweep_form,
+        sweep_preview=sweep_preview,
+        success_message="Signed sweep transaction preview created. Review it carefully before broadcasting.",
+    )
+
+
+@app.post("/bitcoin/sweep-broadcast")
+async def bitcoin_sweep_broadcast(
+    request: Request,
+    nostr_key: str = Form(""),
+    destination_address: str = Form(""),
+    fee_rate: str = Form("2.0"),
+    tx_hex: str = Form(""),
+    txid: str = Form(""),
+    identity: dict[str, Any] = Depends(get_session_identity),
+):
+    balance_form = {"nostr_key": nostr_key.strip()}
+    sweep_form = {
+        "nostr_key": nostr_key.strip(),
+        "destination_address": destination_address.strip(),
+        "fee_rate": fee_rate.strip() or "2.0",
+    }
+
+    try:
+        balance_result = await asyncio.to_thread(
+            derive_p2tr_balance_for_nostr_input,
+            sweep_form["nostr_key"],
+            BLOCKSTREAM_API_BASE,
+            5.0,
+        )
+    except click.ClickException as exc:
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            sweep_form=sweep_form,
+            error_message=str(exc),
+            status_code=400,
+        )
+
+    try:
+        broadcast_txid = await asyncio.to_thread(broadcast_blockstream_transaction, tx_hex, BLOCKSTREAM_API_BASE, 10.0)
+    except click.ClickException as exc:
+        sweep_preview = {
+            "tx_hex": tx_hex,
+            "txid": txid,
+            "destination_address": sweep_form["destination_address"],
+            "fee_rate": sweep_form["fee_rate"],
+            "source_address": balance_result["p2tr"],
+        }
+        return render_bitcoin_balance_response(
+            request,
+            identity,
+            balance_form=balance_form,
+            balance_result=balance_result,
+            sweep_form=sweep_form,
+            sweep_preview=sweep_preview,
+            error_message=str(exc),
+            status_code=400,
+        )
+
+    return render_bitcoin_balance_response(
+        request,
+        identity,
+        balance_form=balance_form,
+        balance_result=balance_result,
+        sweep_form=sweep_form,
+        sweep_broadcast={"broadcast_txid": broadcast_txid, "txid": txid},
+        success_message="Sweep transaction broadcast submitted successfully.",
     )
 
 
